@@ -71,7 +71,7 @@ test("every /evaluate call is recorded and queryable through the observability l
     assert.equal(historyResponse.status, 200);
     const history = await historyResponse.json();
 
-    assert.deepEqual(history.summary, { total: 2, allow: 1, needsReview: 1, deny: 0 });
+    assert.deepEqual(history.summary, { total: 2, allow: 1, needsReview: 1 });
     assert.equal(history.entries.length, 2);
     // Most recent first: the NEEDS_REVIEW evaluation was submitted second.
     assert.equal(history.entries[0].evaluation.decision, "NEEDS_REVIEW");

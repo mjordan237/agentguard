@@ -87,8 +87,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
 
   app.get("/agents/:agentId/history", (req, res) => {
     const decisionParam = req.query.decision;
-    const decision =
-      decisionParam === "ALLOW" || decisionParam === "NEEDS_REVIEW" || decisionParam === "DENY" ? decisionParam : undefined;
+    const decision = decisionParam === "ALLOW" || decisionParam === "NEEDS_REVIEW" ? decisionParam : undefined;
     const limitParam = typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : undefined;
     const limit = Number.isFinite(limitParam) ? limitParam : undefined;
 

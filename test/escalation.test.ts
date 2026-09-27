@@ -97,3 +97,49 @@ test("NEEDS_REVIEW escalates to Slack and can be approved through the review pag
     await slackHandle.close();
   }
 });
+
+test("an agentId containing Slack markup is escaped before it reaches the Slack payload", async () => {
+  let receivedSlackPayload: any = null;
+  const fakeSlack = http.createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      receivedSlackPayload = JSON.parse(raw);
+      res.writeHead(200);
+      res.end("ok");
+    });
+  });
+  const slackHandle = await listen(fakeSlack);
+
+  const policies = new Map([["demo", buildDemoPolicy()]]);
+  const app = createServer(policies, buildDemoRegistry(), {
+    baseUrl: "http://placeholder",
+    slackWebhookUrl: `http://localhost:${slackHandle.port}`
+  });
+  const appServer = http.createServer(app);
+  const appHandle = await listen(appServer);
+  const baseUrl = `http://localhost:${appHandle.port}`;
+
+  // A caller-controlled agentId shaped to inject a channel-wide ping and
+  // a fake link if it reached Slack's mrkdwn renderer unescaped.
+  const maliciousAgentId = "<!channel> urgent & <https://evil.example/phish|click here>";
+
+  try {
+    await postJson(`${baseUrl}/evaluate`, {
+      agentId: maliciousAgentId,
+      policyId: "demo",
+      transactionBase64: buildAdversarialTransaction()
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.ok(receivedSlackPayload, "expected the fake Slack webhook to receive a POST");
+
+    const agentField = receivedSlackPayload.blocks[1].text.text;
+    assert.ok(!agentField.includes("<!channel>"), "raw <!channel> markup must not reach Slack");
+    assert.ok(!agentField.includes("<https://evil.example/phish|click here>"), "raw link markup must not reach Slack");
+    assert.ok(agentField.includes("&lt;!channel&gt;"), "expected the escaped form of the malicious agentId");
+  } finally {
+    await appHandle.close();
+    await slackHandle.close();
+  }
+});

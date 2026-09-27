@@ -11,10 +11,22 @@ import type { PendingReview } from "./pending-store.js";
  * link to our own approve/deny page gets the same human-in-the-loop
  * outcome without it.
  */
+
+/**
+ * agentId is caller-controlled (an unrestricted string in the /evaluate
+ * request body), and Slack's mrkdwn renders `&`, `<`, `>` as markup --
+ * an unescaped agentId could inject a fake link or a `<!channel>` ping
+ * into the alert. Escape every dynamic value the same way, on principle,
+ * not just the ones that look risky today.
+ */
+function escapeSlackMrkdwn(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 export async function escalateToSlack(review: PendingReview, webhookUrl: string, reviewUrl: string): Promise<void> {
   const lines = review.evaluation.decoded.instructions.map((instruction) => {
     const fields = JSON.stringify(instruction.fields, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
-    return `• \`${instruction.programId}\` :: *${instruction.instructionName}* (${instruction.mode})\n  ${fields}`;
+    return `• \`${escapeSlackMrkdwn(instruction.programId)}\` :: *${escapeSlackMrkdwn(instruction.instructionName)}* (${escapeSlackMrkdwn(instruction.mode)})\n  ${escapeSlackMrkdwn(fields)}`;
   });
 
   const payload = {
@@ -27,7 +39,7 @@ export async function escalateToSlack(review: PendingReview, webhookUrl: string,
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*Agent:* \`${review.agentId}\`\n*Fee payer:* \`${review.evaluation.decoded.feePayer}\`\n*Reasons:* ${review.evaluation.reasons.join("; ") || "none given"}`
+          text: `*Agent:* \`${escapeSlackMrkdwn(review.agentId)}\`\n*Fee payer:* \`${escapeSlackMrkdwn(review.evaluation.decoded.feePayer)}\`\n*Reasons:* ${escapeSlackMrkdwn(review.evaluation.reasons.join("; ") || "none given")}`
         }
       },
       {

@@ -24,7 +24,7 @@ export class DailySpendTracker {
     return result;
   }
 
-  /** Only call this for transactions that were actually ALLOWed -- a NEEDS_REVIEW or DENY shouldn't count against the daily budget. */
+  /** Only call this for transactions that were actually ALLOWed -- a NEEDS_REVIEW shouldn't count against the daily budget. */
   record(policyId: string, amountsByAsset: Record<string, bigint>): void {
     const date = this.today();
     for (const [asset, amount] of Object.entries(amountsByAsset)) {

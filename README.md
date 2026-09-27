@@ -58,8 +58,12 @@ POST /evaluate {agentId, policyId, transactionBase64}
   -> resolves the instruction name from its discriminator
   -> decodeVerifiedInstruction() (solana-clear-sign) -- IDL-digest and
      program-identity verified before decoding
-  -> evaluatePolicy() -> ALLOW / DENY / NEEDS_REVIEW
+  -> evaluatePolicy() -> ALLOW / NEEDS_REVIEW
 ```
+
+Deliberately two outcomes, not three: an anomaly always routes to a human
+via `NEEDS_REVIEW` rather than being silently, autonomously blocked.
+Nothing in this pipeline denies a transaction on its own.
 
 Confirmed working: a real `SystemProgram.transfer` instruction, built
 with `@solana/web3.js`, submitted over a live HTTP server, decodes to

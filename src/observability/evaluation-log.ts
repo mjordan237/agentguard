@@ -58,13 +58,12 @@ export class EvaluationLog {
     return results;
   }
 
-  summaryByAgent(agentId: string): { total: number; allow: number; needsReview: number; deny: number } {
+  summaryByAgent(agentId: string): { total: number; allow: number; needsReview: number } {
     const forAgent = this.entries.filter((e) => e.agentId === agentId);
     return {
       total: forAgent.length,
       allow: forAgent.filter((e) => e.evaluation.decision === "ALLOW").length,
-      needsReview: forAgent.filter((e) => e.evaluation.decision === "NEEDS_REVIEW").length,
-      deny: forAgent.filter((e) => e.evaluation.decision === "DENY").length
+      needsReview: forAgent.filter((e) => e.evaluation.decision === "NEEDS_REVIEW").length
     };
   }
 }

@@ -1,4 +1,9 @@
-export type PolicyDecision = "ALLOW" | "DENY" | "NEEDS_REVIEW";
+/**
+ * evaluatePolicy never produces DENY -- an anomaly always routes to a
+ * human via NEEDS_REVIEW rather than being silently, autonomously
+ * blocked. Only ALLOW and NEEDS_REVIEW are real, reachable outcomes.
+ */
+export type PolicyDecision = "ALLOW" | "NEEDS_REVIEW";
 
 export interface DecodedInstructionSummary {
   programId: string;
