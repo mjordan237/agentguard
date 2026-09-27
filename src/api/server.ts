@@ -1,14 +1,15 @@
-import express from "express";
+import express, { type Response } from "express";
 import { z } from "zod";
 import { evaluatePolicy } from "../policy/evaluate.js";
 import { parseAndDecodeTransaction, type LookupTableResolver } from "../agent-integration/parse-transaction.js";
 import type { IdlRegistry } from "../agent-integration/idl-registry.js";
-import type { Policy } from "../policy/types.js";
+import type { Policy, PolicyEvaluation } from "../policy/types.js";
 import { PendingReviewStore } from "../escalation/pending-store.js";
 import { createReviewRouter } from "../escalation/review-routes.js";
 import { escalateToSlack } from "../escalation/slack.js";
 import { DailySpendTracker } from "../policy/daily-spend-tracker.js";
-import { EvaluationLog } from "../observability/evaluation-log.js";
+import { EvaluationLog, type EvaluationLogEntry } from "../observability/evaluation-log.js";
+import { signThroughKora, type KoraGateConfig } from "../gateway/kora-gate.js";
 
 const evaluateRequestSchema = z.object({
   agentId: z.string(),
@@ -20,6 +21,20 @@ export interface ServerConfig {
   baseUrl: string;
   slackWebhookUrl?: string;
   resolveLookupTable?: LookupTableResolver;
+  /** When set, ALLOWed transactions from /gate-and-sign are actually submitted to Kora for signing. */
+  koraGate?: KoraGateConfig;
+}
+
+interface EvaluatedRequest {
+  agentId: string;
+  transactionBase64: string;
+  evaluation: PolicyEvaluation;
+  logEntry: EvaluationLogEntry;
+}
+
+interface EvaluationError {
+  status: number;
+  body: Record<string, unknown>;
 }
 
 export function createServer(policies: Map<string, Policy>, registry: IdlRegistry, config: ServerConfig) {
@@ -30,19 +45,19 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
   app.use(express.json());
   app.use(createReviewRouter(reviewStore));
 
-  app.post("/evaluate", async (req, res) => {
-    const parsed = evaluateRequestSchema.safeParse(req.body);
+  async function evaluateTransactionRequest(body: unknown): Promise<EvaluatedRequest | EvaluationError> {
+    const parsed = evaluateRequestSchema.safeParse(body);
     if (!parsed.success) {
-      return res.status(400).json({ error: "INVALID_REQUEST", details: parsed.error.flatten() });
+      return { status: 400, body: { error: "INVALID_REQUEST", details: parsed.error.flatten() } };
     }
     const policy = policies.get(parsed.data.policyId);
-    if (!policy) return res.status(404).json({ error: "POLICY_NOT_FOUND" });
+    if (!policy) return { status: 404, body: { error: "POLICY_NOT_FOUND" } };
 
     let decoded;
     try {
       decoded = await parseAndDecodeTransaction(parsed.data.transactionBase64, registry, config.resolveLookupTable);
     } catch (error) {
-      return res.status(400).json({ error: "TRANSACTION_PARSE_FAILED", message: (error as Error).message });
+      return { status: 400, body: { error: "TRANSACTION_PARSE_FAILED", message: (error as Error).message } };
     }
 
     const evaluation = evaluatePolicy(decoded, policy, dailySpend.spentToday(policy.policyId));
@@ -58,25 +73,61 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
       dailySpend.record(policy.policyId, amountsByAsset);
     }
 
+    return { agentId: parsed.data.agentId, transactionBase64: parsed.data.transactionBase64, evaluation, logEntry };
+  }
+
+  function respondNeedsReview(res: Response, agentId: string, evaluation: PolicyEvaluation, logEntry: EvaluationLogEntry) {
+    const review = reviewStore.create(agentId, evaluation);
+    const reviewUrl = `${config.baseUrl}/review/${review.id}`;
+
+    if (config.slackWebhookUrl) {
+      // Best-effort: a failed Slack post shouldn't hide a NEEDS_REVIEW
+      // decision from the caller, and it must not crash the request.
+      escalateToSlack(review, config.slackWebhookUrl, reviewUrl).catch((error) => {
+        console.error(`Slack escalation failed for review ${review.id}:`, error);
+      });
+    }
+
+    return res
+      .status(200)
+      .type("application/json")
+      .send(toJsonSafe({ ...evaluation, reviewId: review.id, reviewUrl, logEntryId: logEntry.id }));
+  }
+
+  app.post("/evaluate", async (req, res) => {
+    const result = await evaluateTransactionRequest(req.body);
+    if ("status" in result) return res.status(result.status).json(result.body);
+    const { agentId, evaluation, logEntry } = result;
+
     if (evaluation.decision === "NEEDS_REVIEW") {
-      const review = reviewStore.create(parsed.data.agentId, evaluation);
-      const reviewUrl = `${config.baseUrl}/review/${review.id}`;
-
-      if (config.slackWebhookUrl) {
-        // Best-effort: a failed Slack post shouldn't hide a NEEDS_REVIEW
-        // decision from the caller, and it must not crash the request.
-        escalateToSlack(review, config.slackWebhookUrl, reviewUrl).catch((error) => {
-          console.error(`Slack escalation failed for review ${review.id}:`, error);
-        });
-      }
-
-      return res
-        .status(200)
-        .type("application/json")
-        .send(toJsonSafe({ ...evaluation, reviewId: review.id, reviewUrl, logEntryId: logEntry.id }));
+      return respondNeedsReview(res, agentId, evaluation, logEntry);
     }
 
     return res.status(200).type("application/json").send(toJsonSafe({ ...evaluation, logEntryId: logEntry.id }));
+  });
+
+  app.post("/gate-and-sign", async (req, res) => {
+    const result = await evaluateTransactionRequest(req.body);
+    if ("status" in result) return res.status(result.status).json(result.body);
+    const { agentId, transactionBase64, evaluation, logEntry } = result;
+
+    if (evaluation.decision === "NEEDS_REVIEW") {
+      return respondNeedsReview(res, agentId, evaluation, logEntry);
+    }
+
+    if (!config.koraGate) {
+      return res.status(503).json({
+        error: "KORA_NOT_CONFIGURED",
+        message: "Policy ALLOWed this transaction, but no Kora client is configured to sign it."
+      });
+    }
+
+    try {
+      const signed = await signThroughKora(config.koraGate, transactionBase64);
+      return res.status(200).type("application/json").send(toJsonSafe({ ...evaluation, logEntryId: logEntry.id, kora: signed }));
+    } catch (error) {
+      return res.status(502).json({ error: "KORA_SIGNING_FAILED", message: (error as Error).message });
+    }
   });
 
   app.get("/transactions/:id", (req, res) => {

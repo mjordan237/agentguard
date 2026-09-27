@@ -150,12 +150,36 @@ pitch needs, not just a documentation claim. In-memory today
 is written so a real database can replace the storage later without
 changing callers.
 
+**`POST /gate-and-sign` gates Kora, the Solana Foundation's own relayer,
+and is real and tested** (`src/gateway/kora-gate.ts`). Kora already does
+program allowlisting and per-instruction-category fee-payer permissions
+natively, but not authenticated-IDL argument-level decoding -- that's the
+gap this fills. The flow: an agent's transaction goes through the same
+decode-and-policy check as `/evaluate`; only on `ALLOW` is it forwarded
+to Kora's real `signTransaction` JSON-RPC method (`@solana/kora`'s actual
+client, talking real JSON-RPC 2.0). A `NEEDS_REVIEW` decision is blocked
+before Kora is ever called -- tested by counting real RPC calls against a
+local server speaking Kora's actual wire format, not by asserting on a
+mock. A Kora-side failure returns `KORA_SIGNING_FAILED`, never a false
+`ALLOW`; no `KORA_RPC_URL` configured returns `KORA_NOT_CONFIGURED`
+rather than silently skipping the sign step.
+
+Honest caveat: the fake server in `test/kora-gate.test.ts` speaks Kora's
+real JSON-RPC method names and request/response shapes (verified against
+`@solana/kora`'s own type declarations), but this hasn't yet been run
+against an actual `kora rpc` process with a live signer -- that requires
+a running Rust binary and a funded fee payer, which is real setup, not
+something to claim without doing it.
+
 Every piece described in this document is real, built, and tested --
-there's no remaining "not yet built" list. `npm test` runs 18 tests
+there's no remaining "not yet built" list for the code itself; running
+it against a live Kora node is the one remaining real-world setup step,
+called out above rather than glossed over. `npm test` runs 21 tests
 across decode integration, policy enforcement, escalation, ALT
-resolution, and the observability log, all exercising real code paths
-(real transactions, a real local HTTP server, a real fake-Slack-webhook
-receiver, a real locally-constructed `AddressLookupTableAccount`) rather
+resolution, the observability log, and the Kora gate, all exercising
+real code paths (real transactions, a real local HTTP server, a real
+fake-Slack-webhook receiver, a real fake-Kora-RPC server speaking Kora's
+actual wire format, a real locally-constructed `AddressLookupTableAccount`) rather
 than mocks.
 
 ## Known limitations
@@ -190,17 +214,19 @@ discovered after the fact:
 - `src/policy/` -- policy schema and the allow/needs-review evaluator
 - `src/agent-integration/` -- transaction parsing, IDL registry,
   discriminator resolution, the `solana-clear-sign` decode wiring
-- `src/api/` -- the agent-facing `POST /evaluate` HTTP API
+- `src/api/` -- the agent-facing `POST /evaluate` and `POST /gate-and-sign` HTTP API
 - `src/escalation/` -- human-in-the-loop approval: pending-review store,
   Slack webhook notification, self-hosted approve/deny review page
 - `src/observability/` -- the evaluation log: every `/evaluate` call,
   queryable per-agent, with a running decision summary
+- `src/gateway/` -- the Kora gate: signs an ALLOWed transaction through
+  Kora's real JSON-RPC client, never called for NEEDS_REVIEW
 - `demo/` -- four end-to-end scenarios for the pitch video: legitimate
   payment, hidden-instruction hijack, unapproved destination, over
   spend limit
 - `test/` -- unit and integration tests: policy evaluation, real
   transaction decoding, Slack escalation over real HTTP, Address
-  Lookup Table resolution, and the observability log
+  Lookup Table resolution, the observability log, and the Kora gate
 
 ## Dependencies
 
@@ -208,14 +234,17 @@ Depends on [`solana-clear-sign`](https://github.com/mjordan237/solana-clear-sign
 pinned to a commit via a `github:` dependency. That repo carries a
 `prepare` script so its `dist/` actually builds on install -- verified
 end to end with a real clean install (`rm -rf node_modules dist
-package-lock.json && npm install && npm run build && npm test`, 18/18
+package-lock.json && npm install && npm run build && npm test`, 21/21
 pass) against the GitHub dependency, not a local path.
+
+Also depends on [`@solana/kora`](https://www.npmjs.com/package/@solana/kora),
+the Solana Foundation's own published client, for `/gate-and-sign`.
 
 ```
 npm install
 npm run build
 npm test
-PORT=8787 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... node dist/src/index.js
+PORT=8787 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... KORA_RPC_URL=http://localhost:8080 node dist/src/index.js
 ```
 
 `SLACK_WEBHOOK_URL` is optional -- omit it to run without Slack
@@ -223,4 +252,7 @@ notifications (the `/review/:id` approve/deny page still works either
 way). `BASE_URL` controls the link posted to Slack and returned in the
 API response; defaults to `http://localhost:$PORT`. `RPC_URL` controls
 where Address Lookup Tables get resolved from; defaults to
-`https://api.devnet.solana.com`.
+`https://api.devnet.solana.com`. `KORA_RPC_URL` is optional -- omit it
+to run `/evaluate` only; set it to a running Kora instance's RPC URL to
+enable `/gate-and-sign`, which fails closed with `KORA_NOT_CONFIGURED`
+otherwise.

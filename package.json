@@ -10,17 +10,20 @@
     "test": "node --test dist/test/*.test.js",
     "dev": "tsc -p tsconfig.json --watch"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "license": "Apache-2.0",
   "dependencies": {
+    "@solana/kora": "^0.2.1",
     "@solana/web3.js": "^1.95.0",
-    "solana-clear-sign": "github:mjordan237/solana-clear-sign#2a3594c",
     "express": "^4.19.0",
+    "solana-clear-sign": "github:mjordan237/solana-clear-sign#2a3594c",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
+    "@types/express": "^4.17.21",
     "@types/node": "^20.14.0",
-    "@types/express": "^4.17.21"
+    "typescript": "^5.6.0"
   }
 }
