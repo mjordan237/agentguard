@@ -15,20 +15,7 @@ export interface EvaluationLogFilter {
   limit?: number;
 }
 
-/**
- * Persistent (in-memory, for now) log of every transaction an agent
- * submitted for evaluation -- not just the ones that needed review.
- * This is the observability layer: what did every agent try to do,
- * when, and what was decided, queryable after the fact.
- *
- * This is the piece that turns ClearSign from "a policy check" into
- * "agent transaction safety infrastructure" in the sense Nosana's
- * Voight grant funds -- observability into what agents actually did,
- * not just a single pass/fail gate with no history.
- *
- * In-memory today; the query interface below is written so a real
- * database can replace the storage without changing callers.
- */
+/** Logs every /evaluate call, ALLOW included -- unlike PendingReviewStore, which only tracks NEEDS_REVIEW. */
 export class EvaluationLog {
   private readonly entries: EvaluationLogEntry[] = [];
 

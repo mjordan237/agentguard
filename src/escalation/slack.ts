@@ -12,13 +12,7 @@ import type { PendingReview } from "./pending-store.js";
  * outcome without it.
  */
 
-/**
- * agentId is caller-controlled (an unrestricted string in the /evaluate
- * request body), and Slack's mrkdwn renders `&`, `<`, `>` as markup --
- * an unescaped agentId could inject a fake link or a `<!channel>` ping
- * into the alert. Escape every dynamic value the same way, on principle,
- * not just the ones that look risky today.
- */
+/** agentId is an unrestricted client string; Slack renders &, <, > as markup, so an unescaped value could inject a fake link or an @channel ping. */
 function escapeSlackMrkdwn(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
