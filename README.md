@@ -173,10 +173,12 @@ than mocks.
 
 ## Dependencies
 
-Depends on `solana-clear-sign` via a local `file:` path to the sibling
-`grant-readiness-update` checkout (its GitHub-hosted `dist/` isn't
-published, so a plain GitHub dependency resolves to source with no build
-output -- this sidesteps needing a `prepare` script upstream).
+Depends on [`solana-clear-sign`](https://github.com/mjordan237/solana-clear-sign),
+pinned to a commit via a `github:` dependency. That repo carries a
+`prepare` script so its `dist/` actually builds on install -- verified
+end to end with a real clean install (`rm -rf node_modules dist
+package-lock.json && npm install && npm run build && npm test`, 17/17
+pass) against the GitHub dependency, not a local path.
 
 ```
 npm install
