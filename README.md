@@ -208,7 +208,7 @@ Depends on [`solana-clear-sign`](https://github.com/mjordan237/solana-clear-sign
 pinned to a commit via a `github:` dependency. That repo carries a
 `prepare` script so its `dist/` actually builds on install -- verified
 end to end with a real clean install (`rm -rf node_modules dist
-package-lock.json && npm install && npm run build && npm test`, 17/17
+package-lock.json && npm install && npm run build && npm test`, 18/18
 pass) against the GitHub dependency, not a local path.
 
 ```
