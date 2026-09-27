@@ -137,7 +137,7 @@ just the `NEEDS_REVIEW` ones `PendingReviewStore` already tracked --
 against the agent that submitted it, the policy it was checked against,
 and the full decoded evaluation. `GET /agents/:agentId/history` returns
 that agent's evaluation history (most recent first, optionally filtered
-by `?decision=`) plus a running `{total, allow, needsReview, deny}`
+by `?decision=`) plus a running `{total, allow, needsReview}`
 summary; `GET /transactions/:id` returns one entry by its `logEntryId`
 (now returned from every `/evaluate` response, ALLOW included). This is
 the piece that makes ClearSign an actual record of what agents tried to
@@ -151,16 +151,43 @@ is written so a real database can replace the storage later without
 changing callers.
 
 Every piece described in this document is real, built, and tested --
-there's no remaining "not yet built" list. `npm test` runs 17 tests
+there's no remaining "not yet built" list. `npm test` runs 18 tests
 across decode integration, policy enforcement, escalation, ALT
 resolution, and the observability log, all exercising real code paths
 (real transactions, a real local HTTP server, a real fake-Slack-webhook
 receiver, a real locally-constructed `AddressLookupTableAccount`) rather
 than mocks.
 
+## Known limitations
+
+Honest, not hidden -- these are hackathon-scale tradeoffs, not bugs
+discovered after the fact:
+
+- **The `/review/:id` approve/deny link is a bearer token, not an
+  authenticated action.** `PendingReviewStore` generates an unguessable
+  `randomUUID()` per review, but anyone who has that link -- anyone in
+  the Slack channel it's posted to, anyone who sees it in a log -- can
+  approve or deny the transaction. There's no expiry, no record of who
+  actually clicked, and no separate login step. Good enough to prove the
+  human-in-the-loop flow works end to end; not what a production
+  approval gate for real funds should ship with.
+- **No rate limiting on `POST /evaluate`.** Nothing stops the endpoint
+  from being hammered, including triggering repeated real Slack posts
+  for each `NEEDS_REVIEW` result.
+- **Every store is in-memory and resets on process restart.**
+  `EvaluationLog`, `PendingReviewStore`, and `DailySpendTracker` all
+  hold their state in a `Map`, not a database. The query interfaces are
+  written so a real datastore can replace them without changing
+  callers, but that swap hasn't happened yet.
+- **`npm audit` reports 4 moderate advisories**, all transitive through
+  `@solana/web3.js`'s own RPC client (`jayson` -> `stream-json`/`uuid`).
+  `npm audit fix --force` would downgrade `@solana/web3.js` to `0.0.3`,
+  which isn't a real fix -- these are inherited from the SDK itself, not
+  introduced by this code.
+
 ## Structure
 
-- `src/policy/` -- policy schema and the allow/deny/needs-review evaluator
+- `src/policy/` -- policy schema and the allow/needs-review evaluator
 - `src/agent-integration/` -- transaction parsing, IDL registry,
   discriminator resolution, the `solana-clear-sign` decode wiring
 - `src/api/` -- the agent-facing `POST /evaluate` HTTP API
