@@ -1,7 +1,7 @@
 {
-  "name": "clearsign-agentic-firewall",
+  "name": "agentguard",
   "version": "0.1.0",
-  "description": "Policy firewall for AI-agent-constructed Solana transactions, built on solana-clear-sign's deterministic instruction decoder.",
+  "description": "Security layer for autonomous AI agents transacting onchain, built on solana-clear-sign's authenticated-IDL decoder. Started on Solana; ClearSign is its policy-and-decode engine.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

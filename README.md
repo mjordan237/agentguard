@@ -1,8 +1,16 @@
-# ClearSign Agentic Firewall
+# AgentGuard
 
-A policy firewall for AI-agent-constructed Solana transactions, built on
+A security layer for autonomous AI agents that transact onchain.
+AgentGuard sits between an agent and its wallet: it verifies transaction
+intent, simulates and decodes what a transaction actually does, enforces
+policy, and blocks or routes to a human before funds move. It doesn't
+compete with wallet providers like Coinbase, Turnkey, or Crossmint --
+it's the security layer that sits on top of them.
+
+Starting on Solana. The policy-and-decode engine underneath this repo is
+called ClearSign, built on
 [`solana-clear-sign`](https://github.com/mjordan237/solana-clear-sign)'s
-deterministic instruction decoder.
+authenticated-IDL, bounds-checked instruction decoder.
 
 Built for Colosseum's Crypto World's Fair hackathon (Solana Ecosystem
 track, deadline Oct 12, 2026).
@@ -11,12 +19,15 @@ track, deadline Oct 12, 2026).
 
 An AI agent constructs a Solana transaction -- e.g. paying a vendor for
 completed maintenance work, or settling an [x402](https://solana.com/x402)
-agentic payment. Before it signs, ClearSign decodes exactly what the
-transaction does (reusing `solana-clear-sign`'s authenticated-IDL,
-bounds-checked decoder), checks it against a policy (program allowlist,
-destination allowlist, spend limits), and either auto-approves it within
-policy or blocks it and routes it to a human with a clear, human-readable
-diff of what it actually does -- not what it claims to do.
+agentic payment. Before it signs, AgentGuard's ClearSign engine decodes
+exactly what the transaction does (reusing `solana-clear-sign`'s
+authenticated-IDL, bounds-checked decoder), checks it against a policy
+(program allowlist, destination allowlist, spend limits), and either
+auto-approves it within policy or blocks it and routes it to a human with
+a clear, human-readable diff of what it actually does -- not what it
+claims to do. `POST /gate-and-sign` shows this pattern working end to
+end against a real wallet-adjacent relayer, Kora -- the same shape this
+takes in front of any agent wallet.
 
 ## Why this fits the hackathon
 

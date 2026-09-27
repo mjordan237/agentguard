@@ -37,7 +37,7 @@ const config: ServerConfig = {
 };
 
 createServer(policies, registry, config).listen(port, () => {
-  console.log(`ClearSign Agentic Firewall listening on :${port}`);
+  console.log(`AgentGuard listening on :${port}`);
   console.log(`Resolving Address Lookup Tables via ${rpcUrl}`);
   if (!config.slackWebhookUrl) {
     console.log("SLACK_WEBHOOK_URL not set -- NEEDS_REVIEW decisions will only create a review page, no Slack post.");
