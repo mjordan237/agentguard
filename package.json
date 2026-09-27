@@ -1,0 +1,26 @@
+{
+  "name": "clearsign-agentic-firewall",
+  "version": "0.1.0",
+  "description": "Policy firewall for AI-agent-constructed Solana transactions, built on solana-clear-sign's deterministic instruction decoder.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/test/*.test.js",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "engines": { "node": ">=18" },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "solana-clear-sign": "file:../grant-readiness-update",
+    "express": "^4.19.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^20.14.0",
+    "@types/express": "^4.17.21"
+  }
+}
