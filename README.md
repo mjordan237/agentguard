@@ -183,51 +183,100 @@ a running Rust binary and a funded fee payer, which is real setup, not
 something to claim without doing it.
 
 **`POST /squads/upgrade-check` is a second, narrower gate: a Squads V4
-multisig program-upgrade proposal, checked against its verification
-history, real and tested** (`src/gateway/squads-upgrade-gate.ts`). The
-gap this targets is different from Kora's: Squads' own documentation
-tells signers to manually run `solana-verify` themselves and compare
-hashes by hand before approving an upgrade -- nothing in Squads' UI
-surfaces build-verification status at the point of signing. Given a
-multisig and a pending transaction index, this reads the real on-chain
-`VaultTransaction` account (via `@sqds/multisig`), scans its compiled
-instructions for a genuine BPF Upgradeable Loader `Upgrade` instruction
-(discriminator and account order verified against the real
-`solana-loader-v3-interface` enum, not guessed), and -- if found --
-checks the target program's verification history against OtterSec's
-real, live `verify.osec.io` API.
+multisig program-upgrade proposal, checked against its real on-chain
+proposal status and verification history, real and tested**
+(`src/gateway/squads-upgrade-gate.ts`). The gap this targets is
+different from Kora's: Squads' own documentation tells signers to
+manually run `solana-verify` themselves and compare hashes by hand
+before approving an upgrade -- nothing in Squads' UI surfaces
+build-verification status at the point of signing. Given a multisig
+and a pending transaction index, this derives both the `VaultTransaction`
+and `Proposal` PDAs (via `@sqds/multisig`), reads both accounts, and
+validates each account's owner against the trusted Squads program
+before deserializing -- the trusted program ID is server-side
+configuration, defaulting to the real Squads V4 program, and is never
+accepted from the request body, so a caller can't redirect which
+program's accounts are trusted. It checks the real `Proposal` status:
+only `Active` and `Approved` represent a pending signer decision, so a
+`Rejected`, `Cancelled`, `Executed`, `Executing`, or `Draft` proposal is
+reported as `NOT_PENDING` with its real status named, never described
+as pending.
 
-Honest scope limit, stated plainly rather than implied away: this
-reports whether the program has *any* verified-build record on file, not
-a live cryptographic proof that the *specific pending buffer* matches
-it byte-for-byte. Doing that would mean computing the buffer account's
-own executable hash directly, and the exact on-chain byte layout for
-that wasn't confirmed precisely enough here to do safely -- guessing at
-it risked a silent, wrong hash that looks correct. Every upgrade this
-detects returns `NEEDS_REVIEW`, never an autonomous `ALLOW`; it hands a
-human real context where today they'd see nothing at all, not a
-cryptographic guarantee it doesn't yet have. `test/squads-upgrade-gate.test.ts`
-tests discriminator/account-order parsing with a real, SDK-shaped
-instruction and checks real, live `verify.osec.io` responses for both a
-known-verified program and one with no record. `test/squads-upgrade-endpoint.test.ts`
-builds a real `VaultTransaction` account, serializes it through
-`@sqds/multisig`'s own beet serializer (not a hand-typed byte buffer),
-and feeds those real bytes through the actual deserialization path the
-endpoint uses.
+For a pending proposal, the compiled instructions are scanned for a
+genuine BPF Upgradeable Loader `Upgrade` instruction (discriminator and
+account order verified against the real `solana-loader-v3-interface`
+enum, not guessed -- encoded with bincode, not Borsh, though that
+doesn't change the byte value checked here). Account indexes are
+resolved against the *complete* key list, including any Address
+Lookup Table entries referenced by the proposal's message: static
+keys, then every writable ALT entry (table order, then index order),
+then every readonly entry, fetched live via the configured RPC
+connection. A missing lookup table, an out-of-range index, or an RPC
+failure during resolution fails closed to `ANALYSIS_INCOMPLETE` --
+incomplete analysis is never reported as `NOT_AN_UPGRADE`, which is the
+false-negative this closes: an upgrade routed through an ALT used to
+resolve against the static keys alone and come back looking like no
+upgrade at all.
+
+If found, the target program's verification history is checked against
+OtterSec's real, live `verify.osec.io` API -- but only when the
+endpoint is configured with `SOLANA_CLUSTER=mainnet-beta`, since
+verify.osec.io's remote verification only covers mainnet (confirmed on
+`solana.com/docs/programs/verified-builds`) and the program ID alone
+doesn't prove which cluster a proposal lives on. Any other configured
+cluster, or none, returns `UNKNOWN` without even making the request,
+rather than attributing mainnet evidence to a devnet or custom-RPC
+proposal. The result is one of three explicit outcomes --
+`VERIFIED`, `UNVERIFIED`, or `UNKNOWN` -- never a lossy boolean: an
+HTTP 429/5xx, a network error, a timeout (bounded at 5s via
+`AbortController`), invalid JSON, or a schema-invalid response all
+become `UNKNOWN` with an honest reason, never a false "no verified-build
+record." The configured cluster is included in the response so a
+caller can see what the on-chain read and the verification check were
+each attributed to.
+
+Honest scope limit, stated plainly rather than implied away: even a
+`VERIFIED` outcome reports whether the program has *any* verified-build
+record on file, not a live cryptographic proof that the *specific
+pending buffer* matches it byte-for-byte. Doing that would mean
+computing the buffer account's own executable hash directly, and the
+exact on-chain byte layout for that wasn't confirmed precisely enough
+here to do safely -- guessing at it risked a silent, wrong hash that
+looks correct. Every upgrade this detects returns `NEEDS_REVIEW`,
+never an autonomous `ALLOW`, regardless of verification outcome; it
+hands a human real context where today they'd see nothing at all, not
+a cryptographic guarantee it doesn't yet have.
+`test/squads-upgrade-gate.test.ts` unit-tests discriminator/account-order
+parsing, ALT resolution (including multi-table ordering and every
+fail-closed path), and the tri-state verification outcome (including
+every provider-failure path) against an injectable fetch boundary, so
+the default suite is deterministic and doesn't depend on
+`verify.osec.io`'s live availability. `test/squads-upgrade-endpoint.test.ts`
+builds real `VaultTransaction` and `Proposal` accounts, serializes them
+through `@sqds/multisig`'s own beet serializer (not a hand-typed byte
+buffer), and feeds those real bytes through the actual
+fetch-both-accounts-and-deserialize path the endpoint uses -- including
+an upgrade routed entirely through a lookup table, every terminal
+proposal status, and every account-authenticity fail-closed case
+(missing account, wrong owner, embedded multisig/index mismatch, and a
+requester-supplied `squadsProgramId` that the request schema simply
+doesn't accept).
 
 Every piece described in this document is real, built, and tested --
 there's no remaining "not yet built" list for the code itself; running
 the Kora gate against a live Kora node, and computing a pending buffer's
 own executable hash for the Squads gate, are the two remaining
 real-world steps, both called out above rather than glossed over.
-`npm test` runs 29 tests across decode integration, policy enforcement, escalation, ALT
+`npm test` runs 62 tests across decode integration, policy enforcement, escalation, ALT
 resolution, the observability log, the Kora gate, and the Squads
 upgrade gate, all exercising real code paths (real transactions, a real
 local HTTP server, a real fake-Slack-webhook receiver, a real
 fake-Kora-RPC server speaking Kora's actual wire format, a real
-locally-constructed `AddressLookupTableAccount`, a real `VaultTransaction`
-serialized through `@sqds/multisig`'s own serializer, and real live
-calls to `verify.osec.io`) rather than mocks.
+locally-constructed `AddressLookupTableAccount`, real `VaultTransaction`
+and `Proposal` accounts serialized through `@sqds/multisig`'s own
+serializer) rather than mocks. Live calls to `verify.osec.io` are
+exercised through the injectable fetch boundary rather than the
+network, so the suite has no external dependency.
 
 ## Known limitations
 
@@ -316,4 +365,10 @@ where Address Lookup Tables get resolved from; defaults to
 `https://api.devnet.solana.com`. `KORA_RPC_URL` is optional -- omit it
 to run `/evaluate` only; set it to a running Kora instance's RPC URL to
 enable `/gate-and-sign`, which fails closed with `KORA_NOT_CONFIGURED`
-otherwise.
+otherwise. `SOLANA_CLUSTER` is separate from `RPC_URL` and only affects
+`/squads/upgrade-check`'s verification-history check -- it must be set
+to exactly `mainnet-beta` for that check to call `verify.osec.io` at
+all (the on-chain proposal read itself still happens against whatever
+cluster `RPC_URL` points to); any other value, or leaving it unset,
+makes verification checks return `UNKNOWN` rather than silently
+assuming mainnet.

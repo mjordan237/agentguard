@@ -2,6 +2,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { KoraClient } from "@solana/kora";
 import { createServer, type ServerConfig } from "./api/server.js";
 import type { LookupTableResolver } from "./agent-integration/parse-transaction.js";
+import { parseKnownCluster } from "./gateway/squads-upgrade-gate.js";
 import { buildDemoRegistry, buildDemoPolicy } from "../demo/policy.js";
 import type { Policy } from "./policy/types.js";
 
@@ -28,13 +29,20 @@ const resolveLookupTable: LookupTableResolver = async (address: PublicKey) => {
 };
 
 const koraRpcUrl = process.env.KORA_RPC_URL;
+// verify.osec.io's remote verification is mainnet-only -- unset or any
+// value other than "mainnet-beta" means /squads/upgrade-check's
+// verification checks return UNKNOWN rather than silently assuming
+// mainnet. The default devnet RPC above intentionally does NOT imply a
+// cluster value here; they're configured independently.
+const solanaCluster = parseKnownCluster(process.env.SOLANA_CLUSTER);
 
 const config: ServerConfig = {
   baseUrl: process.env.BASE_URL ?? `http://localhost:${port}`,
   slackWebhookUrl: process.env.SLACK_WEBHOOK_URL,
   resolveLookupTable,
   koraGate: koraRpcUrl ? { client: new KoraClient({ rpcUrl: koraRpcUrl }) } : undefined,
-  connection
+  connection,
+  solanaCluster
 };
 
 createServer(policies, registry, config).listen(port, () => {
@@ -45,5 +53,8 @@ createServer(policies, registry, config).listen(port, () => {
   }
   if (!koraRpcUrl) {
     console.log("KORA_RPC_URL not set -- /gate-and-sign will fail closed with KORA_NOT_CONFIGURED for any ALLOWed transaction.");
+  }
+  if (!solanaCluster) {
+    console.log('SOLANA_CLUSTER not set to a known value ("mainnet-beta", "devnet", or "testnet") -- /squads/upgrade-check verification checks will return UNKNOWN.');
   }
 });

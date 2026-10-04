@@ -11,7 +11,7 @@ import { escalateToSlack } from "../escalation/slack.js";
 import { DailySpendTracker } from "../policy/daily-spend-tracker.js";
 import { EvaluationLog, type EvaluationLogEntry } from "../observability/evaluation-log.js";
 import { signThroughKora, type KoraGateConfig } from "../gateway/kora-gate.js";
-import { evaluateSquadsUpgradeProposal } from "../gateway/squads-upgrade-gate.js";
+import { evaluateSquadsUpgradeProposal, parseTransactionIndex, type FetchLike, type KnownSolanaCluster } from "../gateway/squads-upgrade-gate.js";
 
 const evaluateRequestSchema = z.object({
   agentId: z.string(),
@@ -19,10 +19,13 @@ const evaluateRequestSchema = z.object({
   transactionBase64: z.string()
 });
 
+// squadsProgramId is deliberately NOT accepted here -- which Squads
+// program's accounts are trusted is a server-side configuration
+// decision (ServerConfig.squadsProgramId), not something a requester
+// can redirect by passing an arbitrary program ID in the body.
 const squadsUpgradeCheckRequestSchema = z.object({
   multisigPda: z.string(),
-  transactionIndex: z.union([z.string(), z.number()]),
-  squadsProgramId: z.string().optional()
+  transactionIndex: z.union([z.string(), z.number()])
 });
 
 export interface ServerConfig {
@@ -33,6 +36,18 @@ export interface ServerConfig {
   koraGate?: KoraGateConfig;
   /** Required for POST /squads/upgrade-check -- reads the pending proposal directly from the chain. */
   connection?: Connection;
+  /**
+   * Which cluster `connection` actually talks to -- required for
+   * /squads/upgrade-check to attribute verify.osec.io evidence
+   * correctly. verify.osec.io's remote verification is mainnet-only;
+   * any other value (including unset) means verification checks return
+   * UNKNOWN rather than silently assuming mainnet.
+   */
+  solanaCluster?: KnownSolanaCluster;
+  /** Server-side trust anchor for /squads/upgrade-check; defaults to the real Squads V4 program if unset. */
+  squadsProgramId?: PublicKey;
+  /** Test-only injection point for the verify.osec.io client; production always uses the real global fetch. */
+  verificationFetch?: FetchLike;
 }
 
 interface EvaluatedRequest {
@@ -150,17 +165,29 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
     }
 
     let multisigPda: PublicKey;
-    let squadsProgramId: PublicKey | undefined;
     try {
       multisigPda = new PublicKey(parsed.data.multisigPda);
-      squadsProgramId = parsed.data.squadsProgramId ? new PublicKey(parsed.data.squadsProgramId) : undefined;
     } catch (error) {
       return res.status(400).json({ error: "INVALID_PUBLIC_KEY", message: (error as Error).message });
     }
 
+    const transactionIndex = parseTransactionIndex(parsed.data.transactionIndex);
+    if (transactionIndex === undefined) {
+      return res.status(400).json({
+        error: "INVALID_TRANSACTION_INDEX",
+        message: "transactionIndex must be a non-negative integer within u64 range, not a fraction, negative number, unsafe JS number, or malformed string."
+      });
+    }
+
     try {
-      const transactionIndex = BigInt(parsed.data.transactionIndex);
-      const evaluation = await evaluateSquadsUpgradeProposal(config.connection, multisigPda, transactionIndex, squadsProgramId);
+      const evaluation = await evaluateSquadsUpgradeProposal(
+        config.connection,
+        multisigPda,
+        transactionIndex,
+        config.solanaCluster,
+        config.squadsProgramId,
+        config.verificationFetch
+      );
       return res.status(200).type("application/json").send(toJsonSafe(evaluation));
     } catch (error) {
       return res.status(502).json({ error: "SQUADS_READ_FAILED", message: (error as Error).message });
