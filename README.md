@@ -182,16 +182,52 @@ against an actual `kora rpc` process with a live signer -- that requires
 a running Rust binary and a funded fee payer, which is real setup, not
 something to claim without doing it.
 
+**`POST /squads/upgrade-check` is a second, narrower gate: a Squads V4
+multisig program-upgrade proposal, checked against its verification
+history, real and tested** (`src/gateway/squads-upgrade-gate.ts`). The
+gap this targets is different from Kora's: Squads' own documentation
+tells signers to manually run `solana-verify` themselves and compare
+hashes by hand before approving an upgrade -- nothing in Squads' UI
+surfaces build-verification status at the point of signing. Given a
+multisig and a pending transaction index, this reads the real on-chain
+`VaultTransaction` account (via `@sqds/multisig`), scans its compiled
+instructions for a genuine BPF Upgradeable Loader `Upgrade` instruction
+(discriminator and account order verified against the real
+`solana-loader-v3-interface` enum, not guessed), and -- if found --
+checks the target program's verification history against OtterSec's
+real, live `verify.osec.io` API.
+
+Honest scope limit, stated plainly rather than implied away: this
+reports whether the program has *any* verified-build record on file, not
+a live cryptographic proof that the *specific pending buffer* matches
+it byte-for-byte. Doing that would mean computing the buffer account's
+own executable hash directly, and the exact on-chain byte layout for
+that wasn't confirmed precisely enough here to do safely -- guessing at
+it risked a silent, wrong hash that looks correct. Every upgrade this
+detects returns `NEEDS_REVIEW`, never an autonomous `ALLOW`; it hands a
+human real context where today they'd see nothing at all, not a
+cryptographic guarantee it doesn't yet have. `test/squads-upgrade-gate.test.ts`
+tests discriminator/account-order parsing with a real, SDK-shaped
+instruction and checks real, live `verify.osec.io` responses for both a
+known-verified program and one with no record. `test/squads-upgrade-endpoint.test.ts`
+builds a real `VaultTransaction` account, serializes it through
+`@sqds/multisig`'s own beet serializer (not a hand-typed byte buffer),
+and feeds those real bytes through the actual deserialization path the
+endpoint uses.
+
 Every piece described in this document is real, built, and tested --
 there's no remaining "not yet built" list for the code itself; running
-it against a live Kora node is the one remaining real-world setup step,
-called out above rather than glossed over. `npm test` runs 21 tests
-across decode integration, policy enforcement, escalation, ALT
-resolution, the observability log, and the Kora gate, all exercising
-real code paths (real transactions, a real local HTTP server, a real
-fake-Slack-webhook receiver, a real fake-Kora-RPC server speaking Kora's
-actual wire format, a real locally-constructed `AddressLookupTableAccount`) rather
-than mocks.
+the Kora gate against a live Kora node, and computing a pending buffer's
+own executable hash for the Squads gate, are the two remaining
+real-world steps, both called out above rather than glossed over.
+`npm test` runs 29 tests across decode integration, policy enforcement, escalation, ALT
+resolution, the observability log, the Kora gate, and the Squads
+upgrade gate, all exercising real code paths (real transactions, a real
+local HTTP server, a real fake-Slack-webhook receiver, a real
+fake-Kora-RPC server speaking Kora's actual wire format, a real
+locally-constructed `AddressLookupTableAccount`, a real `VaultTransaction`
+serialized through `@sqds/multisig`'s own serializer, and real live
+calls to `verify.osec.io`) rather than mocks.
 
 ## Known limitations
 
@@ -219,25 +255,37 @@ discovered after the fact:
   `npm audit fix --force` would downgrade `@solana/web3.js` to `0.0.3`,
   which isn't a real fix -- these are inherited from the SDK itself, not
   introduced by this code.
+- **The Squads upgrade gate checks program verification history, not
+  the pending buffer's own bytecode.** It tells a signer whether the
+  target program has ever been verified and against what, which is real
+  context Squads' own UI doesn't provide today -- but it stops short of
+  cryptographically proving the specific proposed buffer matches a
+  verified commit byte-for-byte, since that requires computing the
+  buffer account's own executable hash and the exact on-chain layout for
+  that wasn't confirmed precisely enough here to implement safely.
 
 ## Structure
 
 - `src/policy/` -- policy schema and the allow/needs-review evaluator
 - `src/agent-integration/` -- transaction parsing, IDL registry,
   discriminator resolution, the `solana-clear-sign` decode wiring
-- `src/api/` -- the agent-facing `POST /evaluate` and `POST /gate-and-sign` HTTP API
+- `src/api/` -- the agent-facing `POST /evaluate`, `POST /gate-and-sign`,
+  and `POST /squads/upgrade-check` HTTP API
 - `src/escalation/` -- human-in-the-loop approval: pending-review store,
   Slack webhook notification, self-hosted approve/deny review page
 - `src/observability/` -- the evaluation log: every `/evaluate` call,
   queryable per-agent, with a running decision summary
-- `src/gateway/` -- the Kora gate: signs an ALLOWed transaction through
-  Kora's real JSON-RPC client, never called for NEEDS_REVIEW
+- `src/gateway/` -- the Kora gate (signs an ALLOWed transaction through
+  Kora's real JSON-RPC client, never called for NEEDS_REVIEW) and the
+  Squads upgrade gate (reads a pending program-upgrade proposal and
+  checks its verification history)
 - `demo/` -- four end-to-end scenarios for the pitch video: legitimate
   payment, hidden-instruction hijack, unapproved destination, over
   spend limit
 - `test/` -- unit and integration tests: policy evaluation, real
   transaction decoding, Slack escalation over real HTTP, Address
-  Lookup Table resolution, the observability log, and the Kora gate
+  Lookup Table resolution, the observability log, the Kora gate, and
+  the Squads upgrade gate
 
 ## Dependencies
 
@@ -245,11 +293,13 @@ Depends on [`solana-clear-sign`](https://github.com/mjordan237/solana-clear-sign
 pinned to a commit via a `github:` dependency. That repo carries a
 `prepare` script so its `dist/` actually builds on install -- verified
 end to end with a real clean install (`rm -rf node_modules dist
-package-lock.json && npm install && npm run build && npm test`, 21/21
+package-lock.json && npm install && npm run build && npm test`, 29/29
 pass) against the GitHub dependency, not a local path.
 
 Also depends on [`@solana/kora`](https://www.npmjs.com/package/@solana/kora),
-the Solana Foundation's own published client, for `/gate-and-sign`.
+the Solana Foundation's own published client, for `/gate-and-sign`, and
+on [`@sqds/multisig`](https://www.npmjs.com/package/@sqds/multisig),
+Squads' own published SDK, for `/squads/upgrade-check`.
 
 ```
 npm install

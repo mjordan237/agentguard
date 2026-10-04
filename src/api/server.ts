@@ -1,5 +1,6 @@
 import express, { type Response } from "express";
 import { z } from "zod";
+import { PublicKey, type Connection } from "@solana/web3.js";
 import { evaluatePolicy } from "../policy/evaluate.js";
 import { parseAndDecodeTransaction, type LookupTableResolver } from "../agent-integration/parse-transaction.js";
 import type { IdlRegistry } from "../agent-integration/idl-registry.js";
@@ -10,11 +11,18 @@ import { escalateToSlack } from "../escalation/slack.js";
 import { DailySpendTracker } from "../policy/daily-spend-tracker.js";
 import { EvaluationLog, type EvaluationLogEntry } from "../observability/evaluation-log.js";
 import { signThroughKora, type KoraGateConfig } from "../gateway/kora-gate.js";
+import { evaluateSquadsUpgradeProposal } from "../gateway/squads-upgrade-gate.js";
 
 const evaluateRequestSchema = z.object({
   agentId: z.string(),
   policyId: z.string(),
   transactionBase64: z.string()
+});
+
+const squadsUpgradeCheckRequestSchema = z.object({
+  multisigPda: z.string(),
+  transactionIndex: z.union([z.string(), z.number()]),
+  squadsProgramId: z.string().optional()
 });
 
 export interface ServerConfig {
@@ -23,6 +31,8 @@ export interface ServerConfig {
   resolveLookupTable?: LookupTableResolver;
   /** When set, ALLOWed transactions from /gate-and-sign are actually submitted to Kora for signing. */
   koraGate?: KoraGateConfig;
+  /** Required for POST /squads/upgrade-check -- reads the pending proposal directly from the chain. */
+  connection?: Connection;
 }
 
 interface EvaluatedRequest {
@@ -127,6 +137,33 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
       return res.status(200).type("application/json").send(toJsonSafe({ ...evaluation, logEntryId: logEntry.id, kora: signed }));
     } catch (error) {
       return res.status(502).json({ error: "KORA_SIGNING_FAILED", message: (error as Error).message });
+    }
+  });
+
+  app.post("/squads/upgrade-check", async (req, res) => {
+    const parsed = squadsUpgradeCheckRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "INVALID_REQUEST", details: parsed.error.flatten() });
+    }
+    if (!config.connection) {
+      return res.status(503).json({ error: "CONNECTION_NOT_CONFIGURED", message: "No Solana RPC connection is configured to read the pending proposal." });
+    }
+
+    let multisigPda: PublicKey;
+    let squadsProgramId: PublicKey | undefined;
+    try {
+      multisigPda = new PublicKey(parsed.data.multisigPda);
+      squadsProgramId = parsed.data.squadsProgramId ? new PublicKey(parsed.data.squadsProgramId) : undefined;
+    } catch (error) {
+      return res.status(400).json({ error: "INVALID_PUBLIC_KEY", message: (error as Error).message });
+    }
+
+    try {
+      const transactionIndex = BigInt(parsed.data.transactionIndex);
+      const evaluation = await evaluateSquadsUpgradeProposal(config.connection, multisigPda, transactionIndex, squadsProgramId);
+      return res.status(200).type("application/json").send(toJsonSafe(evaluation));
+    } catch (error) {
+      return res.status(502).json({ error: "SQUADS_READ_FAILED", message: (error as Error).message });
     }
   });
 

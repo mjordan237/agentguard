@@ -17,6 +17,7 @@
   "dependencies": {
     "@solana/kora": "^0.2.1",
     "@solana/web3.js": "^1.95.0",
+    "@sqds/multisig": "^2.1.4",
     "express": "^4.19.0",
     "solana-clear-sign": "github:mjordan237/solana-clear-sign#2a3594c",
     "zod": "^3.23.0"

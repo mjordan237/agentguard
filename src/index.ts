@@ -33,7 +33,8 @@ const config: ServerConfig = {
   baseUrl: process.env.BASE_URL ?? `http://localhost:${port}`,
   slackWebhookUrl: process.env.SLACK_WEBHOOK_URL,
   resolveLookupTable,
-  koraGate: koraRpcUrl ? { client: new KoraClient({ rpcUrl: koraRpcUrl }) } : undefined
+  koraGate: koraRpcUrl ? { client: new KoraClient({ rpcUrl: koraRpcUrl }) } : undefined,
+  connection
 };
 
 createServer(policies, registry, config).listen(port, () => {
