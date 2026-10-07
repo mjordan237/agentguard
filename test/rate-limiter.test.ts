@@ -98,3 +98,32 @@ test("POST /evaluate rate limit defaults to 30/60s when not configured, well abo
     await appHandle.close();
   }
 });
+
+test("POST /squads/upgrade-check returns 429 once the configured rate limit is exceeded", async () => {
+  const policies = new Map([["demo", buildDemoPolicy()]]);
+  const app = createServer(policies, buildDemoRegistry(), {
+    baseUrl: "http://placeholder",
+    rateLimit: { maxRequests: 2, windowMs: 60_000 }
+  });
+  const appServer = http.createServer(app);
+  const appHandle = await listen(appServer);
+  const baseUrl = `http://localhost:${appHandle.port}`;
+
+  try {
+    const body = { multisigPda: "11111111111111111111111111111111", transactionIndex: 1 };
+    const first = await postJson(`${baseUrl}/squads/upgrade-check`, body);
+    const second = await postJson(`${baseUrl}/squads/upgrade-check`, body);
+    const third = await postJson(`${baseUrl}/squads/upgrade-check`, body);
+
+    // No connection is configured in this test, so the first two hit
+    // CONNECTION_NOT_CONFIGURED rather than doing real work -- the point
+    // here is purely that the rate limiter runs before that check at all,
+    // proven by the third request being rejected before even reaching it.
+    assert.notEqual(first.status, 429);
+    assert.notEqual(second.status, 429);
+    assert.equal(third.status, 429);
+    assert.equal(third.body.error, "RATE_LIMITED");
+  } finally {
+    await appHandle.close();
+  }
+});

@@ -140,16 +140,19 @@ outcome without it. To actually post to Slack, set `SLACK_WEBHOOK_URL`;
 without it, the review page still works, there's just no Slack
 notification.
 
-**`POST /evaluate` and `POST /gate-and-sign` are rate-limited, real and
-tested** (`src/api/rate-limiter.ts`). A fixed-window limiter, 30 requests
-per 60 seconds per source IP by default, configurable via
-`ServerConfig.rateLimit`, returns `429 RATE_LIMITED` once exceeded. This
-closes the gap where hammering `/evaluate` could trigger a real Slack
-post for every `NEEDS_REVIEW` result -- the limiter sits in front of the
-route, so a flood never reaches policy evaluation or Slack at all. Like
-the other in-memory stores in this project, the limiter's state resets
-on restart and doesn't share across multiple server instances; a real
-deployment running more than one instance needs a shared backing store.
+**`POST /evaluate`, `POST /gate-and-sign`, and `POST /squads/upgrade-check`
+are all rate-limited, real and tested** (`src/api/rate-limiter.ts`). A
+fixed-window limiter, 30 requests per 60 seconds per source IP by
+default, configurable via `ServerConfig.rateLimit`, returns `429
+RATE_LIMITED` once exceeded. This closes the gap where hammering
+`/evaluate` could trigger a real Slack post for every `NEEDS_REVIEW`
+result, and the same protection covers the Squads endpoint's real RPC
+and OtterSec calls -- the limiter sits in front of each route, so a
+flood never reaches policy evaluation, Slack, or any external call at
+all. Like the other in-memory stores in this project, the limiter's
+state resets on restart and doesn't share across multiple server
+instances; a real deployment running more than one instance needs a
+shared backing store.
 
 **Destination-allowlist and spend-limit enforcement is also real and
 confirmed working.** `evaluatePolicy` now checks `destinationAllowlist`,
@@ -341,7 +344,7 @@ previously open questions, now resolved and tested. Computing a pending
 buffer's own executable hash for the Squads gate remains the one
 real-world step not yet done, called out above rather than glossed
 over.
-`npm test` runs 69 tests across decode integration, policy enforcement, escalation, ALT
+`npm test` runs 70 tests across decode integration, policy enforcement, escalation, ALT
 resolution, the observability log, rate limiting, the Kora gate, and the Squads
 upgrade gate, all exercising real code paths (real transactions, a real
 local HTTP server, a real fake-Slack-webhook receiver, a real

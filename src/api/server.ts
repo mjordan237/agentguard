@@ -169,7 +169,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
     }
   });
 
-  app.post("/squads/upgrade-check", async (req, res) => {
+  app.post("/squads/upgrade-check", rateLimited, async (req, res) => {
     const parsed = squadsUpgradeCheckRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "INVALID_REQUEST", details: parsed.error.flatten() });

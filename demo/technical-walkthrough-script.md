@@ -19,8 +19,8 @@ Agent constructs a transaction
      cryptographic digest to the observed program ID before decoding
   -> evaluatePolicy() -- program allowlist, destination allowlist,
      per-transaction and daily spend limits
-  -> ALLOW: recorded, and (on /gate-and-sign) forwarded to Kora's real
-     signTransaction JSON-RPC method
+  -> ALLOW: recorded, and (on /gate-and-sign) validated against Kora's
+     real fee payer, then signed and submitted through it
   -> NEEDS_REVIEW: recorded, posted to Slack, routed to a self-hosted
      approve/deny page -- never reaches a signer
 ```
@@ -82,11 +82,15 @@ Open `src/gateway/kora-gate.ts` and `src/api/server.ts`'s
 `/gate-and-sign` handler. Walk through `test/kora-gate.test.ts`: a real
 local server speaking Kora's actual JSON-RPC wire format (verified
 against `@solana/kora`'s own type declarations, not guessed), asserting
-that an `ALLOW`ed transaction gets forwarded to Kora's `signTransaction`
-method exactly once, and a `NEEDS_REVIEW` transaction never reaches Kora
-at all. Also show the failure modes: a Kora-side error returns
-`KORA_SIGNING_FAILED`, never a false `ALLOW`; no Kora configured returns
-`KORA_NOT_CONFIGURED` rather than silently skipping the sign step.
+that an `ALLOW`ed transaction has its fee payer checked against Kora's
+real `getPayerSigner` and, once that matches, gets signed and submitted
+through `signAndSendTransaction` exactly once, and a `NEEDS_REVIEW`
+transaction never reaches Kora at all. Also show the failure modes: a
+transaction built with the wrong fee payer returns
+`400 KORA_FEE_PAYER_MISMATCH` before Kora is ever called for signing; a
+Kora-side error returns `KORA_SIGNING_FAILED`, never a false `ALLOW`; no
+Kora configured returns `KORA_NOT_CONFIGURED` rather than silently
+skipping the sign step.
 
 Say explicitly: Kora is the Solana Foundation's own relayer, and it
 already does coarse program allowlisting -- it doesn't do
@@ -107,7 +111,7 @@ gate into an actual record of what an agent tried to do over time.
 
 ## 7. Close honestly
 
-`npm test` -- 69 tests, all exercising real code paths: real
+`npm test` -- 70 tests, all exercising real code paths: real
 transactions, a real local HTTP server, a real fake-Slack-webhook
 receiver, a real fake-Kora-RPC server, a real locally-constructed
 Address Lookup Table, and real SDK-serialized Squads `VaultTransaction`
