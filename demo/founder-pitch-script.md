@@ -42,7 +42,7 @@ signers who currently get no automated context before approving a
 program upgrade. [Name specific teams or communities you're already
 talking to, if there are any.]
 
-**6. What's real today.** This isn't a mockup. 68 automated tests, a
+**6. What's real today.** This isn't a mockup. 69 automated tests, a
 working decode and policy pipeline, a live read of real onchain Squads
 proposals. And beyond tests: a real transaction went through the full
 pipeline, decoded, policy checked, signed, and submitted by a live Kora

@@ -16,14 +16,25 @@ function listen(server: http.Server): Promise<{ port: number; close: () => Promi
   });
 }
 
-function buildTransferTransaction(fromPubkey: PublicKey, toPubkey: PublicKey, lamports: number): string {
-  const transfer = SystemProgram.transfer({ fromPubkey, toPubkey, lamports });
+/**
+ * Builds a transaction the way a real Kora signer actually expects:
+ * `feePayer` (Kora's own configured signer) as the fee payer, with the
+ * agent as a separate instruction-level signer authorizing the transfer.
+ * Confirmed against real, live Kora instances on devnet and mainnet --
+ * see scripts/kora-live-test/. The old version of this test built the
+ * transaction with the agent as fee payer, which doesn't match what a
+ * real Kora signer expects.
+ */
+function buildTransferTransaction(feePayer: PublicKey, agentWallet: Keypair, toPubkey: PublicKey, lamports: number): string {
+  const transfer = SystemProgram.transfer({ fromPubkey: agentWallet.publicKey, toPubkey, lamports });
   const message = new TransactionMessage({
-    payerKey: fromPubkey,
+    payerKey: feePayer,
     recentBlockhash: PublicKey.default.toBase58(),
     instructions: [transfer]
   }).compileToV0Message();
-  return Buffer.from(new VersionedTransaction(message).serialize()).toString("base64");
+  const tx = new VersionedTransaction(message);
+  tx.sign([agentWallet]);
+  return Buffer.from(tx.serialize()).toString("base64");
 }
 
 async function postJson(url: string, body: unknown): Promise<{ status: number; body: any }> {
@@ -46,6 +57,21 @@ function createFakeKoraServer(options: { signerPubkey: string; failNextCall?: bo
     req.on("end", () => {
       const rpc = JSON.parse(raw);
       lastRequest = { method: rpc.method, params: rpc.params };
+
+      if (rpc.method === "getPayerSigner") {
+        // Not counted in calls -- the gate always needs this to validate
+        // the fee payer, regardless of whether it ultimately signs.
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            id: rpc.id,
+            jsonrpc: "2.0",
+            result: { signer_address: options.signerPubkey, payment_address: options.signerPubkey }
+          })
+        );
+        return;
+      }
+
       calls += 1;
 
       if (options.failNextCall) {
@@ -54,13 +80,17 @@ function createFakeKoraServer(options: { signerPubkey: string; failNextCall?: bo
         return;
       }
 
-      if (rpc.method === "signTransaction") {
+      if (rpc.method === "signAndSendTransaction") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
             id: rpc.id,
             jsonrpc: "2.0",
-            result: { signed_transaction: `${rpc.params.transaction}.SIGNED`, signer_pubkey: options.signerPubkey }
+            result: {
+              signature: `fake-signature-${calls}`,
+              signed_transaction: `${rpc.params.transaction}.SIGNED`,
+              signer_pubkey: options.signerPubkey
+            }
           })
         );
         return;
@@ -74,9 +104,10 @@ function createFakeKoraServer(options: { signerPubkey: string; failNextCall?: bo
   return { server, getLastRequest: () => lastRequest, getCallCount: () => calls };
 }
 
-test("gate-and-sign submits ALLOWed transactions to Kora and never calls Kora for NEEDS_REVIEW", async () => {
-  const fakeSignerPubkey = Keypair.generate().publicKey.toBase58();
-  const { server: fakeKora, getCallCount } = createFakeKoraServer({ signerPubkey: fakeSignerPubkey });
+test("gate-and-sign signs and submits ALLOWed transactions through Kora, and never calls Kora for NEEDS_REVIEW", async () => {
+  const feePayerKeypair = Keypair.generate();
+  const feePayerPubkey = feePayerKeypair.publicKey.toBase58();
+  const { server: fakeKora, getCallCount } = createFakeKoraServer({ signerPubkey: feePayerPubkey });
   const koraHandle = await listen(fakeKora);
 
   const agentWallet = Keypair.generate();
@@ -91,17 +122,17 @@ test("gate-and-sign submits ALLOWed transactions to Kora and never calls Kora fo
   const baseUrl = `http://localhost:${appHandle.port}`;
 
   try {
-    const allowTx = buildTransferTransaction(agentWallet.publicKey, approvedVendor.publicKey, 100_000_000);
+    const allowTx = buildTransferTransaction(feePayerKeypair.publicKey, agentWallet, approvedVendor.publicKey, 100_000_000);
     const allowResult = await postJson(`${baseUrl}/gate-and-sign`, { agentId: "agent-1", policyId: "demo", transactionBase64: allowTx });
 
-    assert.equal(allowResult.status, 200);
+    assert.equal(allowResult.status, 200, JSON.stringify(allowResult.body));
     assert.equal(allowResult.body.decision, "ALLOW");
     assert.ok(allowResult.body.kora, "expected a kora signing result on ALLOW");
-    assert.equal(allowResult.body.kora.signer_pubkey, fakeSignerPubkey);
-    assert.equal(allowResult.body.kora.signed_transaction, `${allowTx}.SIGNED`);
+    assert.equal(allowResult.body.kora.signer_pubkey, feePayerPubkey);
+    assert.equal(allowResult.body.kora.signature, "fake-signature-1", "a real signature means it was actually submitted, not just signed");
     assert.equal(getCallCount(), 1, "Kora should have been called exactly once for the ALLOWed transaction");
 
-    const reviewTx = buildTransferTransaction(agentWallet.publicKey, unapprovedVendor.publicKey, 50_000_000);
+    const reviewTx = buildTransferTransaction(feePayerKeypair.publicKey, agentWallet, unapprovedVendor.publicKey, 50_000_000);
     const reviewResult = await postJson(`${baseUrl}/gate-and-sign`, { agentId: "agent-1", policyId: "demo", transactionBase64: reviewTx });
 
     assert.equal(reviewResult.status, 200);
@@ -115,8 +146,9 @@ test("gate-and-sign submits ALLOWed transactions to Kora and never calls Kora fo
   }
 });
 
-test("gate-and-sign returns KORA_SIGNING_FAILED, not a false ALLOW, when Kora itself errors", async () => {
-  const { server: fakeKora } = createFakeKoraServer({ signerPubkey: "unused", failNextCall: true });
+test("gate-and-sign fails closed with KORA_FEE_PAYER_MISMATCH when the transaction's fee payer isn't Kora's own signer", async () => {
+  const realFeePayer = Keypair.generate();
+  const { server: fakeKora, getCallCount } = createFakeKoraServer({ signerPubkey: realFeePayer.publicKey.toBase58() });
   const koraHandle = await listen(fakeKora);
 
   const agentWallet = Keypair.generate();
@@ -129,7 +161,50 @@ test("gate-and-sign returns KORA_SIGNING_FAILED, not a false ALLOW, when Kora it
   const baseUrl = `http://localhost:${appHandle.port}`;
 
   try {
-    const tx = buildTransferTransaction(agentWallet.publicKey, approvedVendor.publicKey, 100_000_000);
+    // Built the old, incorrect way: the agent is its own fee payer,
+    // exactly the shape that doesn't match what a real Kora signer
+    // expects. This must fail closed with a clear, specific error
+    // instead of either silently succeeding or returning a generic
+    // Kora-side failure.
+    const transfer = SystemProgram.transfer({ fromPubkey: agentWallet.publicKey, toPubkey: approvedVendor.publicKey, lamports: 100_000_000 });
+    const message = new TransactionMessage({
+      payerKey: agentWallet.publicKey,
+      recentBlockhash: PublicKey.default.toBase58(),
+      instructions: [transfer]
+    }).compileToV0Message();
+    const tx = new VersionedTransaction(message);
+    tx.sign([agentWallet]);
+    const wrongShapeTx = Buffer.from(tx.serialize()).toString("base64");
+
+    const result = await postJson(`${baseUrl}/gate-and-sign`, { agentId: "agent-1", policyId: "demo", transactionBase64: wrongShapeTx });
+
+    assert.equal(result.status, 400, JSON.stringify(result.body));
+    assert.equal(result.body.error, "KORA_FEE_PAYER_MISMATCH");
+    assert.ok(result.body.message.includes(agentWallet.publicKey.toBase58()), "error should name the wrong fee payer actually found");
+    assert.ok(result.body.message.includes(realFeePayer.publicKey.toBase58()), "error should name Kora's real expected signer");
+    assert.equal(getCallCount(), 0, "Kora's signing method must never be called when the fee payer is wrong, only getPayerSigner for validation");
+  } finally {
+    await appHandle.close();
+    await koraHandle.close();
+  }
+});
+
+test("gate-and-sign returns KORA_SIGNING_FAILED, not a false ALLOW, when Kora itself errors", async () => {
+  const feePayerKeypair = Keypair.generate();
+  const { server: fakeKora } = createFakeKoraServer({ signerPubkey: feePayerKeypair.publicKey.toBase58(), failNextCall: true });
+  const koraHandle = await listen(fakeKora);
+
+  const agentWallet = Keypair.generate();
+  const approvedVendor = Keypair.generate();
+  const policies = new Map([["demo", buildDemoPolicy([approvedVendor.publicKey.toBase58()])]]);
+  const koraClient = new KoraClient({ rpcUrl: `http://localhost:${koraHandle.port}` });
+  const app = createServer(policies, buildDemoRegistry(), { baseUrl: "http://placeholder", koraGate: { client: koraClient } });
+  const appServer = http.createServer(app);
+  const appHandle = await listen(appServer);
+  const baseUrl = `http://localhost:${appHandle.port}`;
+
+  try {
+    const tx = buildTransferTransaction(feePayerKeypair.publicKey, agentWallet, approvedVendor.publicKey, 100_000_000);
     const result = await postJson(`${baseUrl}/gate-and-sign`, { agentId: "agent-1", policyId: "demo", transactionBase64: tx });
 
     assert.equal(result.status, 502);
@@ -150,7 +225,7 @@ test("gate-and-sign fails closed with KORA_NOT_CONFIGURED when no Kora client is
   const baseUrl = `http://localhost:${appHandle.port}`;
 
   try {
-    const tx = buildTransferTransaction(agentWallet.publicKey, approvedVendor.publicKey, 100_000_000);
+    const tx = buildTransferTransaction(Keypair.generate().publicKey, agentWallet, approvedVendor.publicKey, 100_000_000);
     const result = await postJson(`${baseUrl}/gate-and-sign`, { agentId: "agent-1", policyId: "demo", transactionBase64: tx });
 
     assert.equal(result.status, 503);

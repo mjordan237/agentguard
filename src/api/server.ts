@@ -10,7 +10,7 @@ import { createReviewRouter } from "../escalation/review-routes.js";
 import { escalateToSlack } from "../escalation/slack.js";
 import { DailySpendTracker } from "../policy/daily-spend-tracker.js";
 import { EvaluationLog, type EvaluationLogEntry } from "../observability/evaluation-log.js";
-import { signThroughKora, type KoraGateConfig } from "../gateway/kora-gate.js";
+import { signThroughKora, KoraFeePayerMismatchError, type KoraGateConfig } from "../gateway/kora-gate.js";
 import { evaluateSquadsUpgradeProposal, parseTransactionIndex, type FetchLike, type KnownSolanaCluster } from "../gateway/squads-upgrade-gate.js";
 import { RateLimiter } from "./rate-limiter.js";
 
@@ -33,7 +33,7 @@ export interface ServerConfig {
   baseUrl: string;
   slackWebhookUrl?: string;
   resolveLookupTable?: LookupTableResolver;
-  /** When set, ALLOWed transactions from /gate-and-sign are actually submitted to Kora for signing. */
+  /** When set, ALLOWed transactions from /gate-and-sign are validated against Kora's real fee payer, then signed and submitted through it. */
   koraGate?: KoraGateConfig;
   /** Required for POST /squads/upgrade-check -- reads the pending proposal directly from the chain. */
   connection?: Connection;
@@ -162,6 +162,9 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
       const signed = await signThroughKora(config.koraGate, transactionBase64);
       return res.status(200).type("application/json").send(toJsonSafe({ ...evaluation, logEntryId: logEntry.id, kora: signed }));
     } catch (error) {
+      if (error instanceof KoraFeePayerMismatchError) {
+        return res.status(400).json({ error: "KORA_FEE_PAYER_MISMATCH", message: error.message });
+      }
       return res.status(502).json({ error: "KORA_SIGNING_FAILED", message: (error as Error).message });
     }
   });

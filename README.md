@@ -194,43 +194,50 @@ program allowlisting and per-instruction-category fee-payer permissions
 natively, but not authenticated-IDL argument-level decoding -- that's the
 gap this fills. The flow: an agent's transaction goes through the same
 decode-and-policy check as `/evaluate`; only on `ALLOW` is it forwarded
-to Kora's real `signTransaction` JSON-RPC method (`@solana/kora`'s actual
-client, talking real JSON-RPC 2.0). A `NEEDS_REVIEW` decision is blocked
-before Kora is ever called -- tested by counting real RPC calls against a
-local server speaking Kora's actual wire format, not by asserting on a
-mock. A Kora-side failure returns `KORA_SIGNING_FAILED`, never a false
-`ALLOW`; no `KORA_RPC_URL` configured returns `KORA_NOT_CONFIGURED`
-rather than silently skipping the sign step.
+to Kora. A `NEEDS_REVIEW` decision is blocked before Kora is ever called
+-- tested by counting real RPC calls against a local server speaking
+Kora's actual wire format, not by asserting on a mock. A Kora-side
+failure returns `KORA_SIGNING_FAILED`, never a false `ALLOW`; no
+`KORA_RPC_URL` configured returns `KORA_NOT_CONFIGURED` rather than
+silently skipping the sign step.
+
+Before forwarding anything, `signThroughKora` calls Kora's real
+`getPayerSigner` method and checks the incoming transaction's fee payer
+against it. Kora's signing model keeps the fee payer and the
+value-transfer authority as two separate roles (confirmed against real,
+live Kora instances on both devnet and mainnet, see below); a
+transaction built any other way either fails at Kora or, worse, would
+need Kora's own signer to also be a transfer source, which Kora's own
+config validator specifically warns against allowing (it can let a
+malformed request drain the fee payer). A mismatch fails closed with
+`400 KORA_FEE_PAYER_MISMATCH`, naming both the fee payer that was
+actually found and the one Kora expects, before Kora is ever called.
+Only once that checks out does it call `signAndSendTransaction`, not
+sign-only: by the time a transaction reaches this point it already
+carries the agent's own signature authorizing their transfer, Kora's is
+the last signature needed, so there's no reason to withhold submission
+once it's added. The response now carries a real transaction signature,
+not just signed bytes.
 
 The fake server in `test/kora-gate.test.ts` speaks Kora's real JSON-RPC
 method names and request/response shapes (verified against
-`@solana/kora`'s own type declarations). Beyond that, the same
-decode-and-policy code has now also been run against a real, locally
-installed `kora rpc` process with a live signer, on both devnet and real
-mainnet (`scripts/kora-live-test/`), not just the fake server. On
+`@solana/kora`'s own type declarations), including `getPayerSigner` and
+`signAndSendTransaction`, and a dedicated test proves the fee-payer
+check actually fails closed rather than just existing in theory. Beyond
+the fake server, the same decode-and-policy code has also been run
+against a real, locally installed `kora rpc` process with a live signer,
+on both devnet and real mainnet (`scripts/kora-live-test/`). On
 2026-10-07, a transaction was decoded, policy-evaluated, and (on
 `ALLOW`) handed to that live Kora instance, which signed it as fee payer
 and submitted it; the mainnet run moved a small real amount and
 finalized on-chain, transaction
 `3FrjQdVhERCcA83JLMLNLCFaK8zws62S8PLR56BaS8vA9ztBxPcZH9HPXa6CSepYP6B7Ytx8JVkrLG3N2XUDhiwe`,
 independently re-verifiable by anyone against the real balances and the
-transaction's own `preBalances`/`postBalances`.
-
-One real gap surfaced doing this: the transaction has to be built with
-Kora's own signer as the fee payer and the agent as a separate
-instruction-level signer for the transfer, Kora's signing model keeps
-those two roles distinct, and allowing the fee payer to also be a
-transfer source is something Kora's own config validator specifically
-warns against (it can let a malformed request drain the fee payer).
-Neither the existing demo scripts nor `test/kora-gate.test.ts`'s fixture
-build a transaction that way; they build it the convenient way for local
-decode-only testing, which doesn't match what a live Kora signer
-actually expects. The live-test scripts build it correctly. Whether
-`/gate-and-sign` itself should validate that an incoming transaction's
-fee payer matches Kora's configured signer before forwarding it, and
-whether it should actually submit (`signAndSendTransaction`) rather
-than only sign (`signTransaction`, what it does today), is still an open
-decision, not yet resolved here.
+transaction's own `preBalances`/`postBalances`. The existing demo
+scripts still build transactions the old, decode-only-testing way
+(agent as its own fee payer) since they never submit anywhere; that's
+fine for what they're for, and deliberately left alone rather than
+changed to match materials already recorded against them.
 
 **`POST /squads/upgrade-check` is a second, narrower gate: a Squads V4
 multisig program-upgrade proposal, checked against its real on-chain
@@ -328,14 +335,13 @@ Anyone can re-verify this independently against the same address.
 Every piece described in this document is real, built, and tested --
 there's no remaining "not yet built" list for the code itself. The
 decode-and-policy code has now been run against a real live Kora node on
-both devnet and mainnet (see above); what's still open is specifically
-whether `/gate-and-sign` itself should validate the fee-payer identity
-and whether it should sign-and-send rather than sign-only, an API-level
-decision, not a question of whether the underlying pieces work.
-Computing a pending buffer's own executable hash for the Squads gate
-remains the one real-world step not yet done, called out above rather
-than glossed over.
-`npm test` runs 68 tests across decode integration, policy enforcement, escalation, ALT
+both devnet and mainnet (see above), `/gate-and-sign` validates the
+fee-payer identity and signs-and-sends rather than sign-only, both
+previously open questions, now resolved and tested. Computing a pending
+buffer's own executable hash for the Squads gate remains the one
+real-world step not yet done, called out above rather than glossed
+over.
+`npm test` runs 69 tests across decode integration, policy enforcement, escalation, ALT
 resolution, the observability log, rate limiting, the Kora gate, and the Squads
 upgrade gate, all exercising real code paths (real transactions, a real
 local HTTP server, a real fake-Slack-webhook receiver, a real

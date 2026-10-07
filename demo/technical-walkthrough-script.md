@@ -107,7 +107,7 @@ gate into an actual record of what an agent tried to do over time.
 
 ## 7. Close honestly
 
-`npm test` -- 68 tests, all exercising real code paths: real
+`npm test` -- 69 tests, all exercising real code paths: real
 transactions, a real local HTTP server, a real fake-Slack-webhook
 receiver, a real fake-Kora-RPC server, a real locally-constructed
 Address Lookup Table, and real SDK-serialized Squads `VaultTransaction`
