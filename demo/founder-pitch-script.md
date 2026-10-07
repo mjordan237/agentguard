@@ -14,28 +14,23 @@ before this, why this problem, why you're the one building it.]
 
 **2. The problem.** AI agents are starting to hold wallets and sign
 their own Solana transactions, vendor payments, x402 agentic payments,
-multisig approvals. Some custodial wallets are adding their own
-IDL-based policy checks now, but each one locks you into that
-provider's engine and whatever gaps it happens to have, so whether a
-hidden instruction gets caught really just depends on which wallet is
-underneath the agent. This isn't theoretical either. A USENIX Security
-2026 paper tested 15 production x402 facilitators and found policy
-violations in every single one of them.
+multisig approvals. Some custodial wallets now add their own IDL-based
+checks, but each one locks you into that provider's engine and its own
+gaps, so whether a hidden instruction gets caught depends on which
+wallet is underneath. Not theoretical: a USENIX Security 2026 paper
+tested 15 production x402 facilitators and found policy violations in
+every single one.
 
-**3. What AgentGuard does.** It sits in front of any agent wallet
-instead of locking you into one provider's engine. Before a transaction
-signs, it decodes the registered instructions against an authenticated
-IDL that's cryptographically bound to the real onchain program, so a
-spoofed IDL can't make a malicious instruction look benign. It checks
-that decoded intent against policy and either lets the transaction
-through automatically or holds it and routes it to a structured human
-review record, instead of just blocking it and moving on. Anything
-unknown or unverified fails closed to that review process rather than
-being guessed at or quietly let through. It's already gating Kora, the
-Solana Foundation's own relayer, so transactions we clear get forwarded
-to real signing and the ones we hold never reach it, and it also reads
-live Squads multisig proposals to flag pending program upgrades for
-review.
+**3. What AgentGuard does.** It sits in front of any agent wallet, not
+locked into one provider. Before a transaction signs, it decodes the
+registered instructions against an authenticated IDL bound to the real
+onchain program, so a spoofed IDL can't make a malicious instruction
+look benign. It checks that decoded intent against policy and either
+lets the transaction through automatically or holds it and routes it to
+a structured human review, instead of just blocking it and moving on.
+Anything unknown or unverified fails closed to review, never guessed
+at. It already gates Kora, the Solana Foundation's own relayer, and
+reads live Squads multisig proposals to flag pending program upgrades.
 
 **4. Why Solana.** Solana carries roughly 70% of monthly x402
 transaction volume, so agents are already transacting autonomously here
@@ -47,10 +42,13 @@ signers who currently get no automated context before approving a
 program upgrade. [Name specific teams or communities you're already
 talking to, if there are any.]
 
-**6. What's real today.** This isn't a mockup. There are 62 automated
-tests, a working decode and policy pipeline, a live integration gating
-Kora's actual signing endpoint, and a live read of real onchain Squads
-proposals, and the repo is public. [Cut to the demo video here.]
+**6. What's real today.** This isn't a mockup. 68 automated tests, a
+working decode and policy pipeline, a live read of real onchain Squads
+proposals. And beyond tests: a real transaction went through the full
+pipeline, decoded, policy checked, signed, and submitted by a live Kora
+relayer, and it landed and finalized on Solana mainnet. Real money, a
+real signature anyone can look up and verify. That's proven, not just
+should work. [Cut to the demo video here.]
 
 **7. What's next.** Honestly, nobody outside this repo has used
 AgentGuard on a real agent wallet yet. The next milestone is getting it

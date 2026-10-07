@@ -112,9 +112,13 @@ transactions, a real local HTTP server, a real fake-Slack-webhook
 receiver, a real fake-Kora-RPC server, a real locally-constructed
 Address Lookup Table, and real SDK-serialized Squads `VaultTransaction`
 and `Proposal` accounts (see README's Squads upgrade gate section for
-what that covers). Point to the README's Known Limitations section
-unprompted: the review link is a bearer token today, not yet
-authenticated; storage is in-memory; running `/gate-and-sign` against a
-live Kora node with a real signer, and cryptographically verifying a
-pending Squads upgrade buffer's own bytecode, are the two pieces not yet
-demonstrated end to end, and that's stated plainly, not glossed over.
+what that covers). Beyond tests: the decode-and-policy code has been run
+against a real, live Kora relayer and a real signed transaction that
+actually landed and finalized on Solana mainnet (see README's Kora gate
+section for the transaction signature). Point to the README's Known
+Limitations section unprompted: the review link is a bearer token
+today, not yet authenticated; storage is in-memory; whether
+`/gate-and-sign` itself should validate fee-payer identity and
+sign-and-send rather than sign-only is still an open decision; and
+cryptographically verifying a pending Squads upgrade buffer's own
+bytecode is not yet demonstrated. Stated plainly, not glossed over.
