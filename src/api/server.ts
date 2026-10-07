@@ -55,6 +55,8 @@ export interface ServerConfig {
   reviewActionSecret?: string;
   /** How long a PENDING review can be acted on. Defaults to 15 minutes. */
   reviewExpiryMs?: number;
+  /** SQLite path for durable pending reviews and evaluation history. Omit for in-memory stores in tests. */
+  persistencePath?: string;
 }
 
 interface EvaluatedRequest {
@@ -71,9 +73,9 @@ interface EvaluationError {
 
 export function createServer(policies: Map<string, Policy>, registry: IdlRegistry, config: ServerConfig) {
   const app = express();
-  const reviewStore = new PendingReviewStore({ expiresInMs: config.reviewExpiryMs });
+  const reviewStore = new PendingReviewStore({ expiresInMs: config.reviewExpiryMs, persistencePath: config.persistencePath });
   const dailySpend = new DailySpendTracker();
-  const evaluationLog = new EvaluationLog();
+  const evaluationLog = new EvaluationLog({ persistencePath: config.persistencePath });
   const rateLimiter = new RateLimiter(config.rateLimit?.maxRequests ?? 30, config.rateLimit?.windowMs ?? 60_000);
   app.use(express.json());
   app.use(createReviewRouter(reviewStore, { actionSecret: config.reviewActionSecret }));

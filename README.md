@@ -369,22 +369,31 @@ discovered after the fact:
   `resolvedAt` timestamp. This is deliberately not per-user authentication:
   a shared secret proves only that the actor knew the secret, not who they
   were, the action routes have no separate brute-force rate limit, and the
-  in-memory record is lost on restart. Deployments need a high-entropy secret
-  plus gateway rate limiting. A production approval gate needs authenticated,
-  attributable actors plus durable audit storage.
-- **Every store is in-memory and resets on process restart**, including
-  the rate limiter described below.
-  `EvaluationLog`, `PendingReviewStore`, `DailySpendTracker`, and
-  `RateLimiter` all hold their state in a `Map`, not a database. A limit
-  that holds across multiple server instances or survives a restart needs
-  a real backing store (Redis or similar); this one doesn't yet. The
-  query interfaces are written so a real datastore can replace them without changing
-  callers, but that swap hasn't happened yet.
-- **`npm audit` reports 4 moderate advisories**, all transitive through
-  `@solana/web3.js`'s own RPC client (`jayson` -> `stream-json`/`uuid`).
-  `npm audit fix --force` would downgrade `@solana/web3.js` to `0.0.3`,
-  which isn't a real fix -- these are inherited from the SDK itself, not
-  introduced by this code.
+  record is not attributable to an individual identity. Deployments need a
+  high-entropy secret plus gateway rate limiting. A production approval gate
+  needs authenticated, attributable actors plus durable audit storage.
+- **Pending reviews and evaluation history are durable, but daily spend and
+  rate limits are deliberately still in-memory.** The production entrypoint
+  stores `PendingReviewStore` and `EvaluationLog` in a local SQLite file
+  (`AGENTGUARD_DB_PATH`, default `agentguard.sqlite`) so a restart does not
+  erase an approval request or its audit trail. `DailySpendTracker` and
+  `RateLimiter` intentionally remain process-local and reset on restart:
+  persisting spend safely needs idempotency and transaction-settlement rules
+  that are outside this prototype, while a rate-limit reset is acceptable at
+  this stage. SQLite is local-disk persistence, not a distributed datastore:
+  it has no replication, backup policy, encryption, or cross-host coordination.
+  It also depends on Node's built-in `node:sqlite` module, which Node itself
+  still flags as experimental (confirmed: every run prints
+  `ExperimentalWarning: SQLite is an experimental feature and might change
+  at any time`) -- real and working today, verified with an actual process
+  restart and two separate OS processes writing concurrently
+  (`test/persistence.test.ts`), but worth knowing the underlying API isn't
+  Node's own stable surface yet.
+- **`npm audit` currently reports 10 inherited advisories** (6 moderate,
+  4 high), through the Solana SDK dependency graph: `@solana/web3.js`,
+  `@sqds/multisig`, and their transitive RPC and token packages. The
+  available automated fixes require major dependency changes, so this
+  prototype does not apply them blindly.
 - **The Squads upgrade gate checks program verification history, not
   the pending buffer's own bytecode.** It tells a signer whether the
   target program has ever been verified and against what, which is real
@@ -435,7 +444,7 @@ Squads' own published SDK, for `/squads/upgrade-check`.
 npm install
 npm run build
 npm test
-PORT=8787 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... KORA_RPC_URL=http://localhost:8080 REVIEW_ACTION_SECRET=replace-with-a-long-random-secret node dist/src/index.js
+PORT=8787 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... KORA_RPC_URL=http://localhost:8080 REVIEW_ACTION_SECRET=replace-with-a-long-random-secret AGENTGUARD_DB_PATH=./agentguard.sqlite node dist/src/index.js
 ```
 
 `SLACK_WEBHOOK_URL` is optional -- omit it to run without Slack
@@ -454,4 +463,7 @@ to exactly `mainnet-beta` for that check to call `verify.osec.io` at
 all (the on-chain proposal read itself still happens against whatever
 cluster `RPC_URL` points to); any other value, or leaving it unset,
 makes verification checks return `UNKNOWN` rather than silently
-assuming mainnet.
+assuming mainnet. `AGENTGUARD_DB_PATH` selects the SQLite file for durable
+reviews and evaluation history; it defaults to `agentguard.sqlite` in the
+current working directory. Node 22.13 or newer is required for Node's built-in
+SQLite module.

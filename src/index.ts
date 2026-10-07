@@ -39,6 +39,7 @@ const reviewExpiryMs = Number(process.env.REVIEW_EXPIRY_MS ?? 15 * 60_000);
 if (!Number.isFinite(reviewExpiryMs) || reviewExpiryMs <= 0) {
   throw new Error("REVIEW_EXPIRY_MS must be a positive number of milliseconds.");
 }
+const persistencePath = process.env.AGENTGUARD_DB_PATH ?? "agentguard.sqlite";
 
 const config: ServerConfig = {
   baseUrl: process.env.BASE_URL ?? `http://localhost:${port}`,
@@ -48,12 +49,14 @@ const config: ServerConfig = {
   connection,
   solanaCluster,
   reviewActionSecret: process.env.REVIEW_ACTION_SECRET,
-  reviewExpiryMs
+  reviewExpiryMs,
+  persistencePath
 };
 
 createServer(policies, registry, config).listen(port, () => {
   console.log(`AgentGuard listening on :${port}`);
   console.log(`Resolving Address Lookup Tables via ${rpcUrl}`);
+  console.log(`Persisting reviews and evaluation history in ${persistencePath}`);
   if (!config.slackWebhookUrl) {
     console.log("SLACK_WEBHOOK_URL not set -- NEEDS_REVIEW decisions will only create a review page, no Slack post.");
   }
