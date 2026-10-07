@@ -1,0 +1,1 @@
+$ node dist/demo/legitimate-payment.js

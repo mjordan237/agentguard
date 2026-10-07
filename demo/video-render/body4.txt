@@ -1,0 +1,15 @@
+=== Cleanly-decoded payment to an unapproved destination ===
+Agent wallet:     EkvYKFdPUHfWT2fVxrmUnssfb5sxvDUnuAkLVjvYU6VL
+Approved vendor:  BwCPkmUZt9h6PLkGU6hEPwCnxZmMLmGqVXBHWkAYDfTb
+                  (not used in this transaction)
+Actual recipient: 82yRw825GLVBRugRyvJT1Ai5WQTpa8HXw3suBwdegUAo
+
+Decoded intent:
+  11111111111111111111111111111111 :: transfer (interpolated)
+    {"lamports":"250000000",
+     "from":"EkvYKFdPUHfWT2fVxrmUnssfb5sxvDUnuAkLVjvYU6VL",
+     "to":"82yRw825GLVBRugRyvJT1Ai5WQTpa8HXw3suBwdegUAo"}
+
+Decision: NEEDS_REVIEW
+Reasons: Destination 82yRw825GLVBRugRyvJT1Ai5WQTpa8HXw3suBwdegUAo
+         is not in the allowlist.

@@ -1,0 +1,13 @@
+=== Approved vendor, amount over the per-transaction limit ===
+Agent wallet: 8NHDrqMrTdExodMvrWHe1AEZig1QhbLuTZu9KS8kBgjS
+Vendor:       FdjcTUa1UgMkunT4Pg2xm4MMdbruAX1UujGMdfMy3a6n (approved)
+
+Decoded intent:
+  11111111111111111111111111111111 :: transfer (interpolated)
+    {"lamports":"3000000000",
+     "from":"8NHDrqMrTdExodMvrWHe1AEZig1QhbLuTZu9KS8kBgjS",
+     "to":"FdjcTUa1UgMkunT4Pg2xm4MMdbruAX1UujGMdfMy3a6n"}
+
+Decision: NEEDS_REVIEW
+Reasons: Amount 3000000000 (native) exceeds the per-transaction
+         limit of 1000000000.

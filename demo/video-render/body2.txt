@@ -1,0 +1,17 @@
+=== Adversarial: vendor payment + injected authority hijack ===
+Agent wallet:      3LAUScd5yzZLBeHEfjWCTG7Um37h4ZokvK7v6cRGT2N3
+Vendor:            BZYZXY465KoKpiE96yJVQjPUDVF7wQ2C2MCV6kWBbHGR
+Attacker program:  2B3Gnur6NriR7XAzMiYu1oiBTbD5Z1PMkpd3dYnHmCFD
+
+Decoded intent:
+  11111111111111111111111111111111 :: transfer (interpolated)
+    {"lamports":"250000000",
+     "from":"3LAUScd5yzZLBeHEfjWCTG7Um37h4ZokvK7v6cRGT2N3",
+     "to":"BZYZXY465KoKpiE96yJVQjPUDVF7wQ2C2MCV6kWBbHGR"}
+  11111111111111111111111111111111 :: unknown (raw_dump)
+    {"reason":"No instruction in the registered IDL matches
+               this data's discriminator."}
+
+Decision: NEEDS_REVIEW
+Reasons: Instruction on 1111...1111 could not be verified
+         and fell back to raw_dump.

@@ -107,11 +107,14 @@ gate into an actual record of what an agent tried to do over time.
 
 ## 7. Close honestly
 
-`npm test` -- 21 tests, all exercising real code paths: real
+`npm test` -- 62 tests, all exercising real code paths: real
 transactions, a real local HTTP server, a real fake-Slack-webhook
 receiver, a real fake-Kora-RPC server, a real locally-constructed
-Address Lookup Table. Point to the README's Known Limitations section
+Address Lookup Table, and real SDK-serialized Squads `VaultTransaction`
+and `Proposal` accounts (see README's Squads upgrade gate section for
+what that covers). Point to the README's Known Limitations section
 unprompted: the review link is a bearer token today, not yet
 authenticated; storage is in-memory; running `/gate-and-sign` against a
-live Kora node with a real signer is the one piece not yet demonstrated
-end to end, and that's stated plainly, not glossed over.
+live Kora node with a real signer, and cryptographically verifying a
+pending Squads upgrade buffer's own bytecode, are the two pieces not yet
+demonstrated end to end, and that's stated plainly, not glossed over.

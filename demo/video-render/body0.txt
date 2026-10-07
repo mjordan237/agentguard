@@ -1,0 +1,5 @@
+Security layer for autonomous AI agents transacting on Solana.
+
+Before any transaction signs, AgentGuard decodes registered
+instructions, checks them against policy, and sends unknown or
+policy-violating actions to human review.

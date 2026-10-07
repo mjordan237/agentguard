@@ -1,0 +1,4 @@
+The injected instruction isn't in AgentGuard's IDL registry, so
+it refuses to guess what it does -- and flags the whole
+transaction for a human, instead of blocking blindly or letting
+it through.

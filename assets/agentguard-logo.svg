@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">AgentGuard logo</title>
+  <desc id="desc">A shield with a checked transaction path</desc>
+  <defs>
+    <linearGradient id="shield" x1="88" y1="48" x2="424" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#76f5c5"/>
+      <stop offset=".52" stop-color="#35c9e8"/>
+      <stop offset="1" stop-color="#6e72f8"/>
+    </linearGradient>
+    <linearGradient id="path" x1="132" y1="324" x2="362" y2="184" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#07121b"/>
+      <stop offset="1" stop-color="#123241"/>
+    </linearGradient>
+  </defs>
+  <path fill="#07121b" d="M256 20 454 94v138c0 122-79 216-198 260C137 448 58 354 58 232V94L256 20Z"/>
+  <path fill="url(#shield)" d="M256 52 422 114v118c0 99-61 177-166 218C151 409 90 331 90 232V114l166-62Z"/>
+  <path fill="#f5fffb" d="M256 84 390 134v98c0 81-48 144-134 181-86-37-134-100-134-181v-98l134-50Z"/>
+  <path fill="url(#path)" d="m208 327-66-66 27-27 39 39 119-119 27 27-146 146Z"/>
+  <circle cx="364" cy="154" r="17" fill="#76f5c5"/>
+  <circle cx="140" cy="358" r="12" fill="#6e72f8"/>
+</svg>

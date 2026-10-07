@@ -1,9 +1,13 @@
 # AgentGuard
 
+<img src="assets/agentguard-logo.svg" width="96" alt="AgentGuard shield logo">
+
 A security layer for autonomous AI agents that transact onchain.
-AgentGuard sits between an agent and its wallet: it verifies transaction
-intent, simulates and decodes what a transaction actually does, enforces
-policy, and blocks or routes to a human before funds move. It doesn't
+AgentGuard sits between an agent and its wallet: it decodes registered
+instructions, checks the decoded intent against policy, and auto-approves
+within policy or holds the transaction and routes it to a human before
+funds move. Unknown or unverified instructions fail closed to human
+review rather than being guessed at or silently allowed. It doesn't
 compete with wallet providers like Coinbase, Turnkey, or Crossmint --
 it's the security layer that sits on top of them.
 
@@ -15,13 +19,20 @@ authenticated-IDL, bounds-checked instruction decoder.
 Built for Colosseum's Crypto World's Fair hackathon (Solana Ecosystem
 track, deadline Oct 12, 2026).
 
+The project logo is available at
+[`assets/agentguard-logo.svg`](assets/agentguard-logo.svg). The internal
+submission handoff checklist is at
+[`demo/colosseum-submission-worksheet.md`](demo/colosseum-submission-worksheet.md).
+
 ## The idea
 
 An AI agent constructs a Solana transaction -- e.g. paying a vendor for
 completed maintenance work, or settling an [x402](https://solana.com/x402)
 agentic payment. Before it signs, AgentGuard's ClearSign engine decodes
-exactly what the transaction does (reusing `solana-clear-sign`'s
-authenticated-IDL, bounds-checked decoder), checks it against a policy
+the transaction's registered instructions (reusing `solana-clear-sign`'s
+authenticated-IDL, bounds-checked decoder -- an instruction with no
+matching registry entry falls to `raw_dump` rather than being decoded),
+checks it against a policy
 (program allowlist, destination allowlist, spend limits), and either
 auto-approves it within policy or blocks it and routes it to a human with
 a clear, human-readable diff of what it actually does -- not what it
@@ -45,17 +56,26 @@ it tested -- this project is a direct response to that gap.
 
 Real, existing Solana agent-transaction firewalls: [Prflght](https://www.prflght.xyz/)
 (program allowlists + on-chain attestation) and [TruCore ATF](https://trucore.xyz/)
-(spend caps + a fixed DeFi-venue allowlist). [Privy's policy
+(spend caps + a fixed DeFi-venue allowlist) both enforce by blocking
+outright on a policy violation. [Privy's policy
 engine](https://docs.privy.io/controls/policies/overview) does pre-sign
-policy checks in an enclave but only parses native System/Token
-instructions on Solana, not arbitrary IDLs.
+policy checks in a secure enclave and, per its current docs, also
+supports decoding arbitrary custom program instructions via Anchor IDLs
+-- parameter-level decoding on Solana is not unique to this project, and
+this README shouldn't have implied otherwise.
 
-None of them do **authenticated-IDL, parameter-level decoding** of
-arbitrary programs. Allowlisting a program ID doesn't stop a
-prompt-injected agent from calling `SetAuthority` or `Approve` on an
-otherwise-trusted program -- you have to actually decode the instruction
-arguments to catch that. That's what `solana-clear-sign` already does,
-and what this project builds a policy and escalation layer on top of.
+What AgentGuard adds on top of that: an anomaly never dead-ends in a
+silent block. `NOT_AN_UPGRADE`, `NEEDS_REVIEW`, and every other
+non-`ALLOW` outcome routes to a structured human-review record --
+Slack escalation, a real approve/deny page, an audit log queryable per
+agent -- rather than just rejecting the transaction and moving on. It
+also spans two surfaces in one tool: gating an agent wallet's own
+payment signing (via Kora) and reading live Squads multisig proposals to
+flag pending program upgrades for review. `solana-clear-sign`'s
+authenticated-IDL, bounds-checked decoder (cryptographically binding the
+IDL used to the observed on-chain program ID, so a spoofed or mismatched
+IDL can't decode) is what this project's policy and escalation layer is
+built on.
 
 ## Status
 
@@ -152,11 +172,7 @@ by `?decision=`) plus a running `{total, allow, needsReview}`
 summary; `GET /transactions/:id` returns one entry by its `logEntryId`
 (now returned from every `/evaluate` response, ALLOW included). This is
 the piece that makes ClearSign an actual record of what agents tried to
-do over time, not just a stateless pass/fail gate -- see
-[`clearsign-risk-summarizer`](../clearsign-risk-summarizer)'s README for
-why this matters beyond this hackathon: it's the observability
-substance a Nosana-funded "agent transaction safety infrastructure"
-pitch needs, not just a documentation claim. In-memory today
+do over time, not just a stateless pass/fail gate. In-memory today
 (`EvaluationLog`), same as the other stores here -- the query interface
 is written so a real database can replace the storage later without
 changing callers.
@@ -261,6 +277,19 @@ proposal status, and every account-authenticity fail-closed case
 (missing account, wrong owner, embedded multisig/index mismatch, and a
 requester-supplied `squadsProgramId` that the request schema simply
 doesn't accept).
+
+Beyond the test suite, the gate has also been run against a real,
+live mainnet multisig, not just synthetic fixtures. On 2026-10-07, the
+compiled `evaluateSquadsUpgradeProposal` was pointed at multisig
+`92hjPSVuKEmf64BgEquEg4NJPR2wAvKCdU5pW97BB7EM` and transaction index
+`3`, a genuine Squads multisig found via a live `getSignaturesForAddress`
+query against the Squads program on `api.mainnet-beta.solana.com`, not
+an address picked in advance. It correctly read the real on-chain
+`VaultTransaction` and `Proposal` accounts (the transaction's message
+even referenced a real Address Lookup Table, exercising that resolution
+path against live mainnet data) and returned `NOT_PENDING` with
+`proposalStatus: "Executed"`, matching the proposal's actual state.
+Anyone can re-verify this independently against the same address.
 
 Every piece described in this document is real, built, and tested --
 there's no remaining "not yet built" list for the code itself; running

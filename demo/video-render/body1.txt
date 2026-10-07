@@ -1,0 +1,11 @@
+=== Legitimate vendor payment ===
+Agent wallet: 2RhnEtpzB45VZVx83GKqtHUbyCpMc2vscTVuTDAyG5C4
+Vendor:       otrTMwSGcZbGftwNirKwSCSLiwiRTAMXZe7WXqjQYwM
+
+Decoded intent:
+  11111111111111111111111111111111 :: transfer (interpolated)
+    {"lamports":"250000000",
+     "from":"2RhnEtpzB45VZVx83GKqtHUbyCpMc2vscTVuTDAyG5C4",
+     "to":"otrTMwSGcZbGftwNirKwSCSLiwiRTAMXZe7WXqjQYwM"}
+
+Decision: ALLOW

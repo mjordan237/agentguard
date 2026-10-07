@@ -8,18 +8,20 @@ output.
 
 **The problem.** AI agents are starting to hold wallets and sign their
 own Solana transactions -- paying vendors, settling x402 agentic
-payments, executing on-chain trades. A wallet provider like Coinbase,
-Turnkey, or Crossmint will custody the keys and enforce a basic policy:
-program allowlists, spend caps. But none of them decode what a
-transaction actually *does* at the argument level. A prompt-injected
-agent can call `SetAuthority` or inject a hidden instruction into an
-otherwise-legitimate transaction, and a program-ID allowlist alone won't
-catch it -- the instruction is still going to a trusted program, it just
-does something the agent never intended.
+payments, executing on-chain trades. Custodial wallet providers are
+starting to add their own IDL-based policy checks -- Coinbase's and
+Turnkey's both do some parameter-level decoding now -- but each one
+locks you into that provider's own policy engine, with its own coverage
+gaps (Coinbase's, for instance, only validates primitive parameter
+types, and only for API-key-authenticated wallets). A prompt-injected
+agent can still append a hidden instruction to an otherwise-legitimate
+transaction, and whether it gets caught depends entirely on which
+wallet's policy engine happens to be in front of it, and what that
+engine does or doesn't cover.
 
 **What AgentGuard does.** AgentGuard sits between an agent and its
-wallet. Before a transaction signs, it decodes exactly what every
-instruction does -- using an authenticated IDL, cryptographically bound
+wallet. Before a transaction signs, it decodes registered instructions
+using an authenticated IDL, cryptographically bound
 to the real on-chain program, so a spoofed or mismatched IDL can't make
 a malicious instruction render as benign. It checks the decoded intent
 against policy: is this program allowed, is this destination approved,
