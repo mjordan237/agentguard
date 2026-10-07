@@ -51,6 +51,10 @@ export interface ServerConfig {
   verificationFetch?: FetchLike;
   /** Per-IP rate limit for /evaluate and /gate-and-sign. Defaults to 30 requests per 60s window. */
   rateLimit?: { maxRequests: number; windowMs: number };
+  /** Secret required for review approval or denial. Omit to disable review mutations fail closed. */
+  reviewActionSecret?: string;
+  /** How long a PENDING review can be acted on. Defaults to 15 minutes. */
+  reviewExpiryMs?: number;
 }
 
 interface EvaluatedRequest {
@@ -67,12 +71,12 @@ interface EvaluationError {
 
 export function createServer(policies: Map<string, Policy>, registry: IdlRegistry, config: ServerConfig) {
   const app = express();
-  const reviewStore = new PendingReviewStore();
+  const reviewStore = new PendingReviewStore({ expiresInMs: config.reviewExpiryMs });
   const dailySpend = new DailySpendTracker();
   const evaluationLog = new EvaluationLog();
   const rateLimiter = new RateLimiter(config.rateLimit?.maxRequests ?? 30, config.rateLimit?.windowMs ?? 60_000);
   app.use(express.json());
-  app.use(createReviewRouter(reviewStore));
+  app.use(createReviewRouter(reviewStore, { actionSecret: config.reviewActionSecret }));
 
   function rateLimited(req: express.Request, res: Response, next: express.NextFunction) {
     if (!rateLimiter.allow(req.ip ?? "unknown")) {

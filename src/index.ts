@@ -35,6 +35,10 @@ const koraRpcUrl = process.env.KORA_RPC_URL;
 // mainnet. The default devnet RPC above intentionally does NOT imply a
 // cluster value here; they're configured independently.
 const solanaCluster = parseKnownCluster(process.env.SOLANA_CLUSTER);
+const reviewExpiryMs = Number(process.env.REVIEW_EXPIRY_MS ?? 15 * 60_000);
+if (!Number.isFinite(reviewExpiryMs) || reviewExpiryMs <= 0) {
+  throw new Error("REVIEW_EXPIRY_MS must be a positive number of milliseconds.");
+}
 
 const config: ServerConfig = {
   baseUrl: process.env.BASE_URL ?? `http://localhost:${port}`,
@@ -42,7 +46,9 @@ const config: ServerConfig = {
   resolveLookupTable,
   koraGate: koraRpcUrl ? { client: new KoraClient({ rpcUrl: koraRpcUrl }) } : undefined,
   connection,
-  solanaCluster
+  solanaCluster,
+  reviewActionSecret: process.env.REVIEW_ACTION_SECRET,
+  reviewExpiryMs
 };
 
 createServer(policies, registry, config).listen(port, () => {
@@ -56,5 +62,8 @@ createServer(policies, registry, config).listen(port, () => {
   }
   if (!solanaCluster) {
     console.log('SOLANA_CLUSTER not set to a known value ("mainnet-beta", "devnet", or "testnet") -- /squads/upgrade-check verification checks will return UNKNOWN.');
+  }
+  if (!config.reviewActionSecret) {
+    console.log("REVIEW_ACTION_SECRET not set -- review pages remain visible but approve/deny actions are disabled.");
   }
 });

@@ -360,14 +360,18 @@ network, so the suite has no external dependency.
 Honest, not hidden -- these are hackathon-scale tradeoffs, not bugs
 discovered after the fact:
 
-- **The `/review/:id` approve/deny link is a bearer token, not an
-  authenticated action.** `PendingReviewStore` generates an unguessable
-  `randomUUID()` per review, but anyone who has that link -- anyone in
-  the Slack channel it's posted to, anyone who sees it in a log -- can
-  approve or deny the transaction. There's no expiry, no record of who
-  actually clicked, and no separate login step. Good enough to prove the
-  human-in-the-loop flow works end to end; not what a production
-  approval gate for real funds should ship with.
+- **Review pages are readable by anyone with the link, and review actions
+  use one shared secret rather than a real identity system.**
+  `REVIEW_ACTION_SECRET` is required to approve or deny; when it is unset,
+  actions fail closed and stay disabled, while the decoded review remains visible.
+  Pending reviews expire after 15 minutes by default (configure
+  `REVIEW_EXPIRY_MS` in milliseconds), and an approval or denial records a
+  `resolvedAt` timestamp. This is deliberately not per-user authentication:
+  a shared secret proves only that the actor knew the secret, not who they
+  were, the action routes have no separate brute-force rate limit, and the
+  in-memory record is lost on restart. Deployments need a high-entropy secret
+  plus gateway rate limiting. A production approval gate needs authenticated,
+  attributable actors plus durable audit storage.
 - **Every store is in-memory and resets on process restart**, including
   the rate limiter described below.
   `EvaluationLog`, `PendingReviewStore`, `DailySpendTracker`, and
@@ -431,12 +435,14 @@ Squads' own published SDK, for `/squads/upgrade-check`.
 npm install
 npm run build
 npm test
-PORT=8787 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... KORA_RPC_URL=http://localhost:8080 node dist/src/index.js
+PORT=8787 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... KORA_RPC_URL=http://localhost:8080 REVIEW_ACTION_SECRET=replace-with-a-long-random-secret node dist/src/index.js
 ```
 
 `SLACK_WEBHOOK_URL` is optional -- omit it to run without Slack
 notifications (the `/review/:id` approve/deny page still works either
-way). `BASE_URL` controls the link posted to Slack and returned in the
+way). `REVIEW_ACTION_SECRET` is required for approve/deny actions; omit it
+to leave review pages view-only. `REVIEW_EXPIRY_MS` defaults to 900000
+(15 minutes). `BASE_URL` controls the link posted to Slack and returned in the
 API response; defaults to `http://localhost:$PORT`. `RPC_URL` controls
 where Address Lookup Tables get resolved from; defaults to
 `https://api.devnet.solana.com`. `KORA_RPC_URL` is optional -- omit it
