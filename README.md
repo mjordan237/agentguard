@@ -140,6 +140,17 @@ outcome without it. To actually post to Slack, set `SLACK_WEBHOOK_URL`;
 without it, the review page still works, there's just no Slack
 notification.
 
+**`POST /evaluate` and `POST /gate-and-sign` are rate-limited, real and
+tested** (`src/api/rate-limiter.ts`). A fixed-window limiter, 30 requests
+per 60 seconds per source IP by default, configurable via
+`ServerConfig.rateLimit`, returns `429 RATE_LIMITED` once exceeded. This
+closes the gap where hammering `/evaluate` could trigger a real Slack
+post for every `NEEDS_REVIEW` result -- the limiter sits in front of the
+route, so a flood never reaches policy evaluation or Slack at all. Like
+the other in-memory stores in this project, the limiter's state resets
+on restart and doesn't share across multiple server instances; a real
+deployment running more than one instance needs a shared backing store.
+
 **Destination-allowlist and spend-limit enforcement is also real and
 confirmed working.** `evaluatePolicy` now checks `destinationAllowlist`,
 `maxAmountPerTransaction`, and `maxAmountPerDay` -- but only for
@@ -191,12 +202,35 @@ mock. A Kora-side failure returns `KORA_SIGNING_FAILED`, never a false
 `ALLOW`; no `KORA_RPC_URL` configured returns `KORA_NOT_CONFIGURED`
 rather than silently skipping the sign step.
 
-Honest caveat: the fake server in `test/kora-gate.test.ts` speaks Kora's
-real JSON-RPC method names and request/response shapes (verified against
-`@solana/kora`'s own type declarations), but this hasn't yet been run
-against an actual `kora rpc` process with a live signer -- that requires
-a running Rust binary and a funded fee payer, which is real setup, not
-something to claim without doing it.
+The fake server in `test/kora-gate.test.ts` speaks Kora's real JSON-RPC
+method names and request/response shapes (verified against
+`@solana/kora`'s own type declarations). Beyond that, the same
+decode-and-policy code has now also been run against a real, locally
+installed `kora rpc` process with a live signer, on both devnet and real
+mainnet (`scripts/kora-live-test/`), not just the fake server. On
+2026-10-07, a transaction was decoded, policy-evaluated, and (on
+`ALLOW`) handed to that live Kora instance, which signed it as fee payer
+and submitted it; the mainnet run moved a small real amount and
+finalized on-chain, transaction
+`3FrjQdVhERCcA83JLMLNLCFaK8zws62S8PLR56BaS8vA9ztBxPcZH9HPXa6CSepYP6B7Ytx8JVkrLG3N2XUDhiwe`,
+independently re-verifiable by anyone against the real balances and the
+transaction's own `preBalances`/`postBalances`.
+
+One real gap surfaced doing this: the transaction has to be built with
+Kora's own signer as the fee payer and the agent as a separate
+instruction-level signer for the transfer, Kora's signing model keeps
+those two roles distinct, and allowing the fee payer to also be a
+transfer source is something Kora's own config validator specifically
+warns against (it can let a malformed request drain the fee payer).
+Neither the existing demo scripts nor `test/kora-gate.test.ts`'s fixture
+build a transaction that way; they build it the convenient way for local
+decode-only testing, which doesn't match what a live Kora signer
+actually expects. The live-test scripts build it correctly. Whether
+`/gate-and-sign` itself should validate that an incoming transaction's
+fee payer matches Kora's configured signer before forwarding it, and
+whether it should actually submit (`signAndSendTransaction`) rather
+than only sign (`signTransaction`, what it does today), is still an open
+decision, not yet resolved here.
 
 **`POST /squads/upgrade-check` is a second, narrower gate: a Squads V4
 multisig program-upgrade proposal, checked against its real on-chain
@@ -292,12 +326,17 @@ path against live mainnet data) and returned `NOT_PENDING` with
 Anyone can re-verify this independently against the same address.
 
 Every piece described in this document is real, built, and tested --
-there's no remaining "not yet built" list for the code itself; running
-the Kora gate against a live Kora node, and computing a pending buffer's
-own executable hash for the Squads gate, are the two remaining
-real-world steps, both called out above rather than glossed over.
-`npm test` runs 62 tests across decode integration, policy enforcement, escalation, ALT
-resolution, the observability log, the Kora gate, and the Squads
+there's no remaining "not yet built" list for the code itself. The
+decode-and-policy code has now been run against a real live Kora node on
+both devnet and mainnet (see above); what's still open is specifically
+whether `/gate-and-sign` itself should validate the fee-payer identity
+and whether it should sign-and-send rather than sign-only, an API-level
+decision, not a question of whether the underlying pieces work.
+Computing a pending buffer's own executable hash for the Squads gate
+remains the one real-world step not yet done, called out above rather
+than glossed over.
+`npm test` runs 68 tests across decode integration, policy enforcement, escalation, ALT
+resolution, the observability log, rate limiting, the Kora gate, and the Squads
 upgrade gate, all exercising real code paths (real transactions, a real
 local HTTP server, a real fake-Slack-webhook receiver, a real
 fake-Kora-RPC server speaking Kora's actual wire format, a real
@@ -320,13 +359,13 @@ discovered after the fact:
   actually clicked, and no separate login step. Good enough to prove the
   human-in-the-loop flow works end to end; not what a production
   approval gate for real funds should ship with.
-- **No rate limiting on `POST /evaluate`.** Nothing stops the endpoint
-  from being hammered, including triggering repeated real Slack posts
-  for each `NEEDS_REVIEW` result.
-- **Every store is in-memory and resets on process restart.**
-  `EvaluationLog`, `PendingReviewStore`, and `DailySpendTracker` all
-  hold their state in a `Map`, not a database. The query interfaces are
-  written so a real datastore can replace them without changing
+- **Every store is in-memory and resets on process restart**, including
+  the rate limiter described below.
+  `EvaluationLog`, `PendingReviewStore`, `DailySpendTracker`, and
+  `RateLimiter` all hold their state in a `Map`, not a database. A limit
+  that holds across multiple server instances or survives a restart needs
+  a real backing store (Redis or similar); this one doesn't yet. The
+  query interfaces are written so a real datastore can replace them without changing
   callers, but that swap hasn't happened yet.
 - **`npm audit` reports 4 moderate advisories**, all transitive through
   `@solana/web3.js`'s own RPC client (`jayson` -> `stream-json`/`uuid`).

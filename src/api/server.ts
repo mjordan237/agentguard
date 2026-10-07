@@ -12,6 +12,7 @@ import { DailySpendTracker } from "../policy/daily-spend-tracker.js";
 import { EvaluationLog, type EvaluationLogEntry } from "../observability/evaluation-log.js";
 import { signThroughKora, type KoraGateConfig } from "../gateway/kora-gate.js";
 import { evaluateSquadsUpgradeProposal, parseTransactionIndex, type FetchLike, type KnownSolanaCluster } from "../gateway/squads-upgrade-gate.js";
+import { RateLimiter } from "./rate-limiter.js";
 
 const evaluateRequestSchema = z.object({
   agentId: z.string(),
@@ -48,6 +49,8 @@ export interface ServerConfig {
   squadsProgramId?: PublicKey;
   /** Test-only injection point for the verify.osec.io client; production always uses the real global fetch. */
   verificationFetch?: FetchLike;
+  /** Per-IP rate limit for /evaluate and /gate-and-sign. Defaults to 30 requests per 60s window. */
+  rateLimit?: { maxRequests: number; windowMs: number };
 }
 
 interface EvaluatedRequest {
@@ -67,8 +70,16 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
   const reviewStore = new PendingReviewStore();
   const dailySpend = new DailySpendTracker();
   const evaluationLog = new EvaluationLog();
+  const rateLimiter = new RateLimiter(config.rateLimit?.maxRequests ?? 30, config.rateLimit?.windowMs ?? 60_000);
   app.use(express.json());
   app.use(createReviewRouter(reviewStore));
+
+  function rateLimited(req: express.Request, res: Response, next: express.NextFunction) {
+    if (!rateLimiter.allow(req.ip ?? "unknown")) {
+      return res.status(429).json({ error: "RATE_LIMITED", message: "Too many requests. Try again shortly." });
+    }
+    next();
+  }
 
   async function evaluateTransactionRequest(body: unknown): Promise<EvaluatedRequest | EvaluationError> {
     const parsed = evaluateRequestSchema.safeParse(body);
@@ -119,7 +130,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
       .send(toJsonSafe({ ...evaluation, reviewId: review.id, reviewUrl, logEntryId: logEntry.id }));
   }
 
-  app.post("/evaluate", async (req, res) => {
+  app.post("/evaluate", rateLimited, async (req, res) => {
     const result = await evaluateTransactionRequest(req.body);
     if ("status" in result) return res.status(result.status).json(result.body);
     const { agentId, evaluation, logEntry } = result;
@@ -131,7 +142,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
     return res.status(200).type("application/json").send(toJsonSafe({ ...evaluation, logEntryId: logEntry.id }));
   });
 
-  app.post("/gate-and-sign", async (req, res) => {
+  app.post("/gate-and-sign", rateLimited, async (req, res) => {
     const result = await evaluateTransactionRequest(req.body);
     if ("status" in result) return res.status(result.status).json(result.body);
     const { agentId, transactionBase64, evaluation, logEntry } = result;

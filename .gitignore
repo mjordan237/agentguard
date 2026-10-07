@@ -2,3 +2,9 @@ node_modules/
 dist/
 .env
 *.log
+.DS_Store
+
+# Generated/local-only test keypairs for scripts/kora-live-test/ -- never
+# commit a private key, even a worthless devnet one, as a matter of habit.
+scripts/kora-live-test/*-wallet.json
+scripts/kora-live-test/*-key.json
