@@ -1,5 +1,6 @@
 import type { AddressLookupTableAccount, Connection } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
+import { createHash } from "node:crypto";
 import { accounts, getProposalPda, getTransactionPda, PROGRAM_ID as SQUADS_PROGRAM_ID } from "@sqds/multisig";
 
 /**
@@ -29,6 +30,8 @@ const UPGRADE_DISCRIMINATOR = [3, 0, 0, 0];
  */
 const PROGRAM_ACCOUNT_INDEX = 1;
 const BUFFER_ACCOUNT_INDEX = 2;
+const BUFFER_METADATA_SIZE = 37;
+const BUFFER_STATE_DISCRIMINATOR = 1;
 
 /** verify.osec.io's remote verification only covers mainnet -- confirmed on solana.com/docs/programs/verified-builds ("Remote verification will only work on mainnet"), not assumed. */
 export const SUPPORTED_VERIFICATION_CLUSTER = "mainnet-beta" as const;
@@ -44,6 +47,46 @@ export function parseKnownCluster(value: string | undefined): KnownSolanaCluster
 export interface DetectedUpgrade {
   targetProgramId: string;
   bufferAddress: string;
+}
+
+export type BufferBytecodeEvidence =
+  | { outcome: "HASHED"; sha256: string; bytesHashed: number }
+  | { outcome: "UNAVAILABLE"; reason: string };
+
+/**
+ * Returns evidence about the exact bytes currently held in a pending upgrade
+ * buffer. This is deliberately not verified-build status: it only gives a
+ * reviewer a reproducible fingerprint to compare with a separately trusted
+ * deterministic build. The layout and trailing-zero treatment match
+ * solana-verify's public get-buffer-hash implementation.
+ */
+export async function getBufferBytecodeEvidence(connection: Connection, bufferAddress: PublicKey): Promise<BufferBytecodeEvidence> {
+  let account;
+  try {
+    account = await connection.getAccountInfo(bufferAddress);
+  } catch (error) {
+    return { outcome: "UNAVAILABLE", reason: `RPC failure reading pending buffer ${bufferAddress.toBase58()}: ${(error as Error).message}` };
+  }
+  if (!account) return { outcome: "UNAVAILABLE", reason: `Pending buffer ${bufferAddress.toBase58()} could not be found.` };
+  if (!account.owner.equals(BPF_UPGRADEABLE_LOADER_PROGRAM_ID)) {
+    return {
+      outcome: "UNAVAILABLE",
+      reason: `Pending buffer ${bufferAddress.toBase58()} is owned by ${account.owner.toBase58()}, not the BPF Upgradeable Loader.`
+    };
+  }
+  if (account.data.length < BUFFER_METADATA_SIZE || account.data.readUInt32LE(0) !== BUFFER_STATE_DISCRIMINATOR) {
+    return { outcome: "UNAVAILABLE", reason: `Pending buffer ${bufferAddress.toBase58()} does not contain a valid upgradeable-loader Buffer header.` };
+  }
+
+  const programBytes = account.data.subarray(BUFFER_METADATA_SIZE);
+  let executableEnd = programBytes.length;
+  while (executableEnd > 0 && programBytes[executableEnd - 1] === 0) executableEnd -= 1;
+  const executableBytes = programBytes.subarray(0, executableEnd);
+  return {
+    outcome: "HASHED",
+    sha256: createHash("sha256").update(executableBytes).digest("hex"),
+    bytesHashed: executableBytes.length
+  };
 }
 
 interface CompiledMessageLike {
@@ -265,6 +308,7 @@ export type SquadsUpgradeEvaluation =
       bufferAddress: string;
       proposalStatus: string;
       verificationHistory: VerifiedBuildStatus;
+      bufferBytecodeEvidence: BufferBytecodeEvidence;
       reasons: string[];
     };
 
@@ -345,7 +389,10 @@ export async function evaluateSquadsUpgradeProposal(
     return { decision: "NOT_AN_UPGRADE", cluster, reasons: ["This proposal does not contain a BPF Upgradeable Loader Upgrade instruction."] };
   }
 
-  const verificationHistory = await checkProgramVerificationHistory(detected.targetProgramId, cluster, fetchImpl);
+  const [verificationHistory, bufferBytecodeEvidence] = await Promise.all([
+    checkProgramVerificationHistory(detected.targetProgramId, cluster, fetchImpl),
+    getBufferBytecodeEvidence(connection, new PublicKey(detected.bufferAddress))
+  ]);
   const reasons: string[] = [];
   if (verificationHistory.outcome === "VERIFIED") {
     reasons.push(
@@ -358,6 +405,13 @@ export async function evaluateSquadsUpgradeProposal(
   } else {
     reasons.push(`Verification status for ${detected.targetProgramId} is unknown: ${verificationHistory.reason}`);
   }
+  if (bufferBytecodeEvidence.outcome === "HASHED") {
+    reasons.push(
+      `Pending buffer ${detected.bufferAddress} has SHA-256 ${bufferBytecodeEvidence.sha256} over ${bufferBytecodeEvidence.bytesHashed} executable bytes. This is a fingerprint, not verified-build status; compare it with a separately trusted deterministic build before approving.`
+    );
+  } else {
+    reasons.push(`Pending buffer bytecode fingerprint is unavailable: ${bufferBytecodeEvidence.reason}`);
+  }
 
   return {
     decision: "NEEDS_REVIEW",
@@ -366,6 +420,7 @@ export async function evaluateSquadsUpgradeProposal(
     bufferAddress: detected.bufferAddress,
     proposalStatus: statusKind,
     verificationHistory,
+    bufferBytecodeEvidence,
     reasons
   };
 }

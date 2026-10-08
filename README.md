@@ -368,8 +368,9 @@ discovered after the fact:
   `REVIEW_EXPIRY_MS` in milliseconds), and an approval or denial records a
   `resolvedAt` timestamp. This is deliberately not per-user authentication:
   a shared secret proves only that the actor knew the secret, not who they
-  were, the action routes have no separate brute-force rate limit, and the
-  record is not attributable to an individual identity. Deployments need a
+  were, review approve/deny attempts are limited per IP and endpoint family
+  to the configured server rate limit (30 requests per 60 seconds by default),
+  and the record is not attributable to an individual identity. Deployments need a
   high-entropy secret plus gateway rate limiting. A production approval gate
   needs authenticated, attributable actors plus durable audit storage.
 - **Pending reviews, evaluation history, and daily spend totals are durable;
@@ -395,14 +396,14 @@ discovered after the fact:
   `@sqds/multisig`, and their transitive RPC and token packages. The
   available automated fixes require major dependency changes, so this
   prototype does not apply them blindly.
-- **The Squads upgrade gate checks program verification history, not
-  the pending buffer's own bytecode.** It tells a signer whether the
-  target program has ever been verified and against what, which is real
-  context Squads' own UI doesn't provide today -- but it stops short of
-  cryptographically proving the specific proposed buffer matches a
-  verified commit byte-for-byte, since that requires computing the
-  buffer account's own executable hash and the exact on-chain layout for
-  that wasn't confirmed precisely enough here to implement safely.
+- **The Squads upgrade gate reports a pending buffer's bytecode fingerprint,
+  but does not verify that fingerprint against source code.** It tells a
+  signer whether the target program has verified-build history and reports
+  the SHA-256 of the proposed buffer's executable bytes for comparison with
+  a separately trusted deterministic build. OtterSec's public API documents
+  verification status by deployed program ID, not pending buffer ID, so the
+  fingerprint is explicitly evidence for human review—not a verified-build
+  result or a pass/fail decision.
 
 ## Structure
 

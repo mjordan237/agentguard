@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Keypair, PublicKey, type AddressLookupTableAccount, type Connection } from "@solana/web3.js";
+import { Keypair, PublicKey, type AccountInfo, type AddressLookupTableAccount, type Connection } from "@solana/web3.js";
 import {
   BPF_UPGRADEABLE_LOADER_PROGRAM_ID,
   detectUpgradeInstruction,
+  getBufferBytecodeEvidence,
   resolveFullAccountKeys,
   checkProgramVerificationHistory,
   parseTransactionIndex,
@@ -77,6 +78,42 @@ test("detectUpgradeInstruction ignores other BPF loader instructions (e.g. Write
   message.instructions[0]!.data = new Uint8Array([1, 0, 0, 0]); // Write, not Upgrade
 
   assert.equal(detectUpgradeInstruction(message), undefined);
+});
+
+function upgradeableBufferAccount(programBytes: number[], owner: PublicKey = BPF_UPGRADEABLE_LOADER_PROGRAM_ID): AccountInfo<Buffer> {
+  // UpgradeableLoaderState::Buffer serializes to 37 bytes: a four-byte
+  // enum discriminator, an Option<Pubkey> tag, then the authority pubkey.
+  const data = Buffer.alloc(37 + programBytes.length + 3);
+  data.writeUInt32LE(1, 0);
+  data[4] = 1;
+  Buffer.from(programBytes).copy(data, 37);
+  return { data, executable: false, lamports: 1, owner, rentEpoch: 0 };
+}
+
+test("getBufferBytecodeEvidence hashes only executable bytes after the Buffer header and trailing allocation zeros", async () => {
+  const buffer = Keypair.generate().publicKey;
+  const account = upgradeableBufferAccount([1, 2, 3]);
+  const connection = { getAccountInfo: async (address: PublicKey) => (address.equals(buffer) ? account : null) } as unknown as Connection;
+
+  const evidence = await getBufferBytecodeEvidence(connection, buffer);
+
+  assert.deepEqual(evidence, {
+    outcome: "HASHED",
+    sha256: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+    bytesHashed: 3
+  });
+});
+
+test("getBufferBytecodeEvidence does not hash an account that is not a BPF Upgradeable Loader Buffer", async () => {
+  const buffer = Keypair.generate().publicKey;
+  const connection = {
+    getAccountInfo: async () => upgradeableBufferAccount([1, 2, 3], Keypair.generate().publicKey)
+  } as unknown as Connection;
+
+  const evidence = await getBufferBytecodeEvidence(connection, buffer);
+
+  assert.equal(evidence.outcome, "UNAVAILABLE");
+  assert.match(evidence.reason, /not the BPF Upgradeable Loader/);
 });
 
 // --- resolveFullAccountKeys: ALT resolution ---

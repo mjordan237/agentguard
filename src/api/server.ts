@@ -49,7 +49,7 @@ export interface ServerConfig {
   squadsProgramId?: PublicKey;
   /** Test-only injection point for the verify.osec.io client; production always uses the real global fetch. */
   verificationFetch?: FetchLike;
-  /** Per-IP rate limit for /evaluate and /gate-and-sign. Defaults to 30 requests per 60s window. */
+  /** Per-IP rate limit for each endpoint family. Defaults to 30 requests per 60s window. */
   rateLimit?: { maxRequests: number; windowMs: number };
   /** Secret required for review approval or denial. Omit to disable review mutations fail closed. */
   reviewActionSecret?: string;
@@ -78,14 +78,24 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
   const evaluationLog = new EvaluationLog({ persistencePath: config.persistencePath });
   const rateLimiter = new RateLimiter(config.rateLimit?.maxRequests ?? 30, config.rateLimit?.windowMs ?? 60_000);
   app.use(express.json());
-  app.use(createReviewRouter(reviewStore, { actionSecret: config.reviewActionSecret }));
 
-  function rateLimited(req: express.Request, res: Response, next: express.NextFunction) {
-    if (!rateLimiter.allow(req.ip ?? "unknown")) {
-      return res.status(429).json({ error: "RATE_LIMITED", message: "Too many requests. Try again shortly." });
-    }
-    next();
+  function rateLimited(scope: string) {
+    return (req: express.Request, res: Response, next: express.NextFunction) => {
+      if (!rateLimiter.allow(`${scope}:${req.ip ?? "unknown"}`)) {
+        return res.status(429).json({ error: "RATE_LIMITED", message: "Too many requests. Try again shortly." });
+      }
+      next();
+    };
   }
+
+  const transactionRateLimited = rateLimited("transaction");
+  const reviewActionRateLimited = rateLimited("review-action");
+
+  // Review actions use an independent key namespace on the same limiter so
+  // general endpoint traffic cannot consume the approval-secret guess budget.
+  app.post("/review/:id/approve", reviewActionRateLimited);
+  app.post("/review/:id/deny", reviewActionRateLimited);
+  app.use(createReviewRouter(reviewStore, { actionSecret: config.reviewActionSecret }));
 
   async function evaluateTransactionRequest(body: unknown): Promise<EvaluatedRequest | EvaluationError> {
     const parsed = evaluateRequestSchema.safeParse(body);
@@ -136,7 +146,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
       .send(toJsonSafe({ ...evaluation, reviewId: review.id, reviewUrl, logEntryId: logEntry.id }));
   }
 
-  app.post("/evaluate", rateLimited, async (req, res) => {
+  app.post("/evaluate", transactionRateLimited, async (req, res) => {
     const result = await evaluateTransactionRequest(req.body);
     if ("status" in result) return res.status(result.status).json(result.body);
     const { agentId, evaluation, logEntry } = result;
@@ -148,7 +158,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
     return res.status(200).type("application/json").send(toJsonSafe({ ...evaluation, logEntryId: logEntry.id }));
   });
 
-  app.post("/gate-and-sign", rateLimited, async (req, res) => {
+  app.post("/gate-and-sign", transactionRateLimited, async (req, res) => {
     const result = await evaluateTransactionRequest(req.body);
     if ("status" in result) return res.status(result.status).json(result.body);
     const { agentId, transactionBase64, evaluation, logEntry } = result;
@@ -175,7 +185,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
     }
   });
 
-  app.post("/squads/upgrade-check", rateLimited, async (req, res) => {
+  app.post("/squads/upgrade-check", transactionRateLimited, async (req, res) => {
     const parsed = squadsUpgradeCheckRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "INVALID_REQUEST", details: parsed.error.flatten() });

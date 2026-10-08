@@ -34,7 +34,7 @@ async function postJson(url: string, body: unknown): Promise<{ status: number; b
   return { status: response.status, body: await response.json().catch(() => null) };
 }
 
-async function startReviewApp(options: { reviewActionSecret?: string; reviewExpiryMs?: number } = {}) {
+async function startReviewApp(options: { reviewActionSecret?: string; reviewExpiryMs?: number; rateLimit?: { maxRequests: number; windowMs: number } } = {}) {
   const policies = new Map([["demo", buildDemoPolicy()]]);
   const app = createServer(policies, buildDemoRegistry(), {
     baseUrl: "http://placeholder",
@@ -74,6 +74,28 @@ async function postReviewAction(
     method: "POST",
     redirect: "manual",
     headers: secret === undefined ? {} : { "x-review-action-secret": secret }
+  });
+}
+
+function postReviewActionFromIp(url: string, secret: string, address: string): Promise<number> {
+  const target = new URL(url);
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        hostname: address,
+        port: target.port,
+        path: target.pathname,
+        method: "POST",
+        localAddress: address,
+        headers: { "x-review-action-secret": secret }
+      },
+      (response) => {
+        response.resume();
+        response.once("end", () => resolve(response.statusCode ?? 0));
+      }
+    );
+    request.once("error", reject);
+    request.end();
   });
 }
 
@@ -204,6 +226,25 @@ test("a wrong review action secret cannot deny a review", async () => {
 
     const page = await fetch(`${app.baseUrl}/review/${reviewId}`);
     assert.ok((await page.text()).includes("PENDING"));
+  } finally {
+    await app.close();
+  }
+});
+
+test("review action attempts are rate-limited per IP without blocking a different IP", async () => {
+  const app = await startReviewApp({ reviewActionSecret: "review-secret", rateLimit: { maxRequests: 2, windowMs: 60_000 } });
+  try {
+    const reviewId = await createPendingReview(app.baseUrl);
+    const actionUrl = `${app.baseUrl}/review/${reviewId}/approve`;
+
+    assert.equal(await postReviewActionFromIp(actionUrl, "wrong-secret", "127.0.0.1"), 401);
+    assert.equal(await postReviewActionFromIp(actionUrl, "wrong-secret", "127.0.0.1"), 401);
+    assert.equal(await postReviewActionFromIp(actionUrl, "wrong-secret", "127.0.0.1"), 429);
+
+    // This must remain readable; only POST approval/denial paths consume the
+    // separate brute-force budget.
+    assert.equal((await fetch(`${app.baseUrl}/review/${reviewId}`)).status, 200);
+    assert.equal(await postReviewActionFromIp(actionUrl, "wrong-secret", "::1"), 401);
   } finally {
     await app.close();
   }
