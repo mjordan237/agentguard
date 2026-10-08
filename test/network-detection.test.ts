@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { AddressInfo } from "node:net";
+import { spawn } from "node:child_process";
 import { Connection } from "@solana/web3.js";
-import { detectSolanaNetwork, networkStartupLines, SOLANA_GENESIS_HASHES } from "../src/network/cluster-detection.js";
+import { assertConfiguredNetwork, detectSolanaNetwork, networkStartupLines, SOLANA_GENESIS_HASHES } from "../src/network/cluster-detection.js";
 
 function listen(server: http.Server): Promise<{ endpoint: string; close: () => Promise<void> }> {
   return new Promise((resolve) => {
@@ -26,6 +27,17 @@ async function startGenesisHashRpc(genesisHash: string) {
     });
   });
   return listen(server);
+}
+
+function runServerProcess(environment: NodeJS.ProcessEnv): Promise<{ code: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["dist/src/index.js"], { cwd: process.cwd(), env: environment });
+    let output = "";
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.stderr.on("data", (chunk) => { output += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, output }));
+  });
 }
 
 test("startup detection identifies mainnet from its measured genesis hash and prints a distinct banner", async () => {
@@ -67,6 +79,36 @@ test("startup detection warns when configured and measured networks disagree", a
   try {
     const detection = await detectSolanaNetwork(new Connection(rpc.endpoint));
     assert.match(networkStartupLines(detection, "devnet").join("\n"), /WARNING: SOLANA_CLUSTER is configured as devnet, but RPC genesis hash measured mainnet-beta/);
+  } finally {
+    await rpc.close();
+  }
+});
+
+test("strict startup validation rejects a configured network that disagrees with measured RPC identity", () => {
+  const detection = { genesisHash: SOLANA_GENESIS_HASHES.devnet, detectedCluster: "devnet" as const };
+  assert.throws(
+    () => assertConfiguredNetwork(detection, "mainnet-beta"),
+    /SOLANA_CLUSTER is configured as mainnet-beta, but RPC genesis hash .* identifies devnet/
+  );
+});
+
+test("strict startup validation allows a matching configured network", () => {
+  const detection = { genesisHash: SOLANA_GENESIS_HASHES["mainnet-beta"], detectedCluster: "mainnet-beta" as const };
+  assert.doesNotThrow(() => assertConfiguredNetwork(detection, "mainnet-beta"));
+});
+
+test("mainnet configuration refuses to start when RPC identifies devnet", async () => {
+  const rpc = await startGenesisHashRpc(SOLANA_GENESIS_HASHES.devnet);
+  try {
+    const result = await runServerProcess({
+      ...process.env,
+      RPC_URL: rpc.endpoint,
+      SOLANA_CLUSTER: "mainnet-beta",
+      PORT: "0"
+    });
+    assert.equal(result.code, 1);
+    assert.match(result.output, /Startup refused because strict RPC network matching is enabled/);
+    assert.doesNotMatch(result.output, /AgentGuard listening/);
   } finally {
     await rpc.close();
   }

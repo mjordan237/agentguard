@@ -342,7 +342,7 @@ both devnet and mainnet (see above), `/gate-and-sign` validates the
 fee-payer identity and signs-and-sends rather than sign-only, both
 previously open questions, now resolved and tested. The Squads gate also
 reports the SHA-256 fingerprint of a pending buffer's executable bytes.
-`npm test` runs 90 tests across decode integration, policy enforcement, escalation, ALT
+`npm test` runs 93 tests across decode integration, policy enforcement, escalation, ALT
 resolution, the observability log, rate limiting, the Kora gate, and the Squads
 upgrade gate, all exercising real code paths (real transactions, a real
 local HTTP server, a real fake-Slack-webhook receiver, a real
@@ -466,7 +466,11 @@ makes verification checks return `UNKNOWN` rather than silently
 assuming mainnet. `AGENTGUARD_DB_PATH` selects the SQLite file for durable
 reviews and evaluation history; it defaults to `agentguard.sqlite` in the
 current working directory. Node 22.13 or newer is required for Node's built-in
-SQLite module.
+SQLite module. When `SOLANA_CLUSTER=mainnet-beta`, startup requires the RPC
+endpoint's measured genesis hash to be mainnet-beta before serving requests.
+Set `REQUIRE_RPC_NETWORK_MATCH=true` to apply the same refusal behavior to a
+configured devnet or testnet deployment. An RPC identity failure or mismatch
+under strict matching prevents the HTTP server from starting.
 
 ### Container
 

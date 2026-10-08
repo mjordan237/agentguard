@@ -3,7 +3,7 @@ import { KoraClient } from "@solana/kora";
 import { createServer, type ServerConfig } from "./api/server.js";
 import type { LookupTableResolver } from "./agent-integration/parse-transaction.js";
 import { parseKnownCluster } from "./gateway/squads-upgrade-gate.js";
-import { detectSolanaNetwork, networkStartupLines } from "./network/cluster-detection.js";
+import { assertConfiguredNetwork, detectSolanaNetwork, networkStartupLines } from "./network/cluster-detection.js";
 import { buildDemoRegistry, buildDemoPolicy } from "../demo/policy.js";
 import type { Policy } from "./policy/types.js";
 
@@ -36,6 +36,11 @@ const koraRpcUrl = process.env.KORA_RPC_URL;
 // mainnet. The default devnet RPC above intentionally does NOT imply a
 // cluster value here; they're configured independently.
 const solanaCluster = parseKnownCluster(process.env.SOLANA_CLUSTER);
+const strictNetworkMatchValue = process.env.REQUIRE_RPC_NETWORK_MATCH;
+if (strictNetworkMatchValue !== undefined && strictNetworkMatchValue !== "true" && strictNetworkMatchValue !== "false") {
+  throw new Error("REQUIRE_RPC_NETWORK_MATCH must be exactly true or false when set.");
+}
+const requireRpcNetworkMatch = solanaCluster === "mainnet-beta" || strictNetworkMatchValue === "true";
 const reviewExpiryMs = Number(process.env.REVIEW_EXPIRY_MS ?? 15 * 60_000);
 if (!Number.isFinite(reviewExpiryMs) || reviewExpiryMs <= 0) {
   throw new Error("REVIEW_EXPIRY_MS must be a positive number of milliseconds.");
@@ -58,9 +63,24 @@ async function start(): Promise<void> {
   try {
     const detection = await detectSolanaNetwork(connection);
     for (const line of networkStartupLines(detection, solanaCluster)) console.log(line);
+    if (requireRpcNetworkMatch) {
+      try {
+        assertConfiguredNetwork(detection, solanaCluster);
+      } catch (error) {
+        console.error(`!!! RPC NETWORK MISMATCH !!! ${(error as Error).message}`);
+        console.error("Startup refused because strict RPC network matching is enabled.");
+        process.exitCode = 1;
+        return;
+      }
+    }
   } catch (error) {
     console.error(`!!! RPC NETWORK DETECTION FAILED !!! Could not read genesis hash from ${rpcUrl}: ${(error as Error).message}`);
     console.error("No network identity is being assumed from SOLANA_CLUSTER alone.");
+    if (requireRpcNetworkMatch) {
+      console.error("Startup refused because strict RPC network matching is enabled.");
+      process.exitCode = 1;
+      return;
+    }
   }
 
   createServer(policies, registry, config).listen(port, () => {
@@ -75,6 +95,9 @@ async function start(): Promise<void> {
   }
   if (!solanaCluster) {
     console.log('SOLANA_CLUSTER not set to a known value ("mainnet-beta", "devnet", or "testnet") -- /squads/upgrade-check verification checks will return UNKNOWN.');
+  }
+  if (requireRpcNetworkMatch && solanaCluster === "mainnet-beta") {
+    console.log("Strict RPC network matching is enforced for mainnet-beta.");
   }
   if (!config.reviewActionSecret) {
     console.log("REVIEW_ACTION_SECRET not set -- review pages remain visible but approve/deny actions are disabled.");

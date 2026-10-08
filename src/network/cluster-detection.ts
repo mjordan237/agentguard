@@ -19,6 +19,14 @@ export async function detectSolanaNetwork(connection: Pick<Connection, "getGenes
   return { genesisHash, detectedCluster };
 }
 
+/** Rejects a configured cluster when the RPC endpoint proves it is another network. */
+export function assertConfiguredNetwork(detection: NetworkDetection, configuredCluster: KnownSolanaCluster | undefined): void {
+  if (configuredCluster === undefined || configuredCluster === detection.detectedCluster) return;
+  throw new Error(
+    `SOLANA_CLUSTER is configured as ${configuredCluster}, but RPC genesis hash ${detection.genesisHash} identifies ${detection.detectedCluster ?? "an unknown network"}.`
+  );
+}
+
 /** Builds startup output from measured RPC identity, with configuration shown only for comparison. */
 export function networkStartupLines(detection: NetworkDetection, configuredCluster: KnownSolanaCluster | undefined): string[] {
   const lines: string[] = [];
