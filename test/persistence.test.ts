@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 import { Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { createServer } from "../src/api/server.js";
 import { EvaluationLog } from "../src/observability/evaluation-log.js";
+import { DailySpendTracker } from "../src/policy/daily-spend-tracker.js";
+import { openSqliteDatabase } from "../src/storage/sqlite.js";
 import { buildDemoPolicy, buildDemoRegistry } from "../demo/policy.js";
 
 function listen(server: http.Server): Promise<{ port: number; close: () => Promise<void> }> {
@@ -35,6 +37,16 @@ function buildAdversarialTransaction(): string {
   return Buffer.from(new VersionedTransaction(message).serialize()).toString("base64");
 }
 
+function buildTransferTransaction(fromPubkey: PublicKey, toPubkey: PublicKey, lamports: number): string {
+  const transfer = SystemProgram.transfer({ fromPubkey, toPubkey, lamports });
+  const message = new TransactionMessage({
+    payerKey: fromPubkey,
+    recentBlockhash: PublicKey.default.toBase58(),
+    instructions: [transfer]
+  }).compileToV0Message();
+  return Buffer.from(new VersionedTransaction(message).serialize()).toString("base64");
+}
+
 async function postJson(url: string, body: unknown): Promise<{ status: number; body: any }> {
   const response = await fetch(url, {
     method: "POST",
@@ -46,6 +58,17 @@ async function postJson(url: string, body: unknown): Promise<{ status: number; b
 
 async function startPersistentServer(persistencePath: string) {
   const policies = new Map([["demo", buildDemoPolicy()]]);
+  const app = createServer(policies, buildDemoRegistry(), {
+    baseUrl: "http://placeholder",
+    persistencePath,
+    reviewActionSecret: "restart-test-secret"
+  });
+  const handle = await listen(http.createServer(app));
+  return { baseUrl: `http://localhost:${handle.port}`, close: handle.close };
+}
+
+async function startSpendServer(persistencePath: string, approvedVendor: string) {
+  const policies = new Map([["demo", buildDemoPolicy([approvedVendor], "1000", "100")]]);
   const app = createServer(policies, buildDemoRegistry(), {
     baseUrl: "http://placeholder",
     persistencePath,
@@ -140,6 +163,67 @@ test("two independent Node processes preserve all concurrent evaluation-log writ
     assert.equal(entries.filter((entry) => entry.agentId === "writer-a").length, 25);
     assert.equal(entries.filter((entry) => entry.agentId === "writer-b").length, 25);
     assert.ok(entries.every((entry) => entry.evaluation.decoded.instructions[0]?.amount === 42n));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("daily spend remains enforced after a server restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentguard-persistence-"));
+  const persistencePath = join(directory, "agentguard.sqlite");
+  const agent = Keypair.generate();
+  const vendor = Keypair.generate();
+  const transfer = buildTransferTransaction(agent.publicKey, vendor.publicKey, 60);
+  const first = await startSpendServer(persistencePath, vendor.publicKey.toBase58());
+
+  try {
+    const allowed = await postJson(`${first.baseUrl}/evaluate`, {
+      agentId: "spend-restart-agent",
+      policyId: "demo",
+      transactionBase64: transfer
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.body.decision, "ALLOW");
+    await first.close();
+
+    const second = await startSpendServer(persistencePath, vendor.publicKey.toBase58());
+    try {
+      const overDailyLimit = await postJson(`${second.baseUrl}/evaluate`, {
+        agentId: "spend-restart-agent",
+        policyId: "demo",
+        transactionBase64: transfer
+      });
+      assert.equal(overDailyLimit.status, 200);
+      assert.equal(overDailyLimit.body.decision, "NEEDS_REVIEW");
+      assert.match(overDailyLimit.body.reasons.join("\n"), /today's total native spend to 120/);
+    } finally {
+      await second.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("daily spend totals sum as bigint and ignore prior UTC dates", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentguard-persistence-"));
+  const persistencePath = join(directory, "agentguard.sqlite");
+
+  try {
+    const first = new DailySpendTracker({ persistencePath });
+    first.record("policy-a", { native: 9n, token: 2n });
+    first.record("policy-a", { native: 11n });
+    assert.deepEqual(first.spentToday("policy-a"), { native: 20n, token: 2n });
+
+    const second = new DailySpendTracker({ persistencePath });
+    second.record("policy-a", { native: 3n });
+    assert.deepEqual(second.spentToday("policy-a"), { native: 23n, token: 2n });
+
+    const yesterday = new Date(Date.now() - 24 * 60 * 60_000).toISOString().slice(0, 10);
+    openSqliteDatabase(persistencePath).prepare(`
+      INSERT INTO daily_spend (policy_id, asset, spend_date, amount)
+      VALUES (?, ?, ?, ?)
+    `).run("policy-a", "expired-day", yesterday, "999999999999999999999999999999999999");
+    assert.deepEqual(new DailySpendTracker({ persistencePath }).spentToday("policy-a"), { native: 23n, token: 2n });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

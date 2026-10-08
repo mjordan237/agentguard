@@ -8,3 +8,9 @@ dist/
 # commit a private key, even a worthless devnet one, as a matter of habit.
 scripts/kora-live-test/*-wallet.json
 scripts/kora-live-test/*-key.json
+
+# Local AGENTGUARD_DB_PATH default -- durable pending reviews, evaluation
+# history, and daily spend live here on disk, never in git.
+agentguard.sqlite
+agentguard.sqlite-shm
+agentguard.sqlite-wal

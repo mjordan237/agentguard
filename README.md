@@ -372,15 +372,16 @@ discovered after the fact:
   record is not attributable to an individual identity. Deployments need a
   high-entropy secret plus gateway rate limiting. A production approval gate
   needs authenticated, attributable actors plus durable audit storage.
-- **Pending reviews and evaluation history are durable, but daily spend and
-  rate limits are deliberately still in-memory.** The production entrypoint
-  stores `PendingReviewStore` and `EvaluationLog` in a local SQLite file
-  (`AGENTGUARD_DB_PATH`, default `agentguard.sqlite`) so a restart does not
-  erase an approval request or its audit trail. `DailySpendTracker` and
-  `RateLimiter` intentionally remain process-local and reset on restart:
-  persisting spend safely needs idempotency and transaction-settlement rules
-  that are outside this prototype, while a rate-limit reset is acceptable at
-  this stage. SQLite is local-disk persistence, not a distributed datastore:
+- **Pending reviews, evaluation history, and daily spend totals are durable;
+  rate limits remain intentionally in-memory.** The production entrypoint
+  stores `PendingReviewStore`, `EvaluationLog`, and `DailySpendTracker` in a
+  local SQLite file (`AGENTGUARD_DB_PATH`, default `agentguard.sqlite`) so a
+  restart does not erase an approval request, its audit trail, or a day's
+  approved-spend total. `DailySpendTracker` is best-effort accounting for
+  transactions approved by this service, not a reconciled on-chain settlement
+  ledger: it has no transaction identity or settlement-status reconciliation.
+  `RateLimiter` remains process-local and resets on restart. SQLite is
+  local-disk persistence, not a distributed datastore:
   it has no replication, backup policy, encryption, or cross-host coordination.
   It also depends on Node's built-in `node:sqlite` module, which Node itself
   still flags as experimental (confirmed: every run prints

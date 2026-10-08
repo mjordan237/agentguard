@@ -3,6 +3,7 @@ import { KoraClient } from "@solana/kora";
 import { createServer, type ServerConfig } from "./api/server.js";
 import type { LookupTableResolver } from "./agent-integration/parse-transaction.js";
 import { parseKnownCluster } from "./gateway/squads-upgrade-gate.js";
+import { detectSolanaNetwork, networkStartupLines } from "./network/cluster-detection.js";
 import { buildDemoRegistry, buildDemoPolicy } from "../demo/policy.js";
 import type { Policy } from "./policy/types.js";
 
@@ -53,10 +54,19 @@ const config: ServerConfig = {
   persistencePath
 };
 
-createServer(policies, registry, config).listen(port, () => {
+async function start(): Promise<void> {
+  try {
+    const detection = await detectSolanaNetwork(connection);
+    for (const line of networkStartupLines(detection, solanaCluster)) console.log(line);
+  } catch (error) {
+    console.error(`!!! RPC NETWORK DETECTION FAILED !!! Could not read genesis hash from ${rpcUrl}: ${(error as Error).message}`);
+    console.error("No network identity is being assumed from SOLANA_CLUSTER alone.");
+  }
+
+  createServer(policies, registry, config).listen(port, () => {
   console.log(`AgentGuard listening on :${port}`);
   console.log(`Resolving Address Lookup Tables via ${rpcUrl}`);
-  console.log(`Persisting reviews and evaluation history in ${persistencePath}`);
+  console.log(`Persisting reviews, evaluation history, and daily spend in ${persistencePath}`);
   if (!config.slackWebhookUrl) {
     console.log("SLACK_WEBHOOK_URL not set -- NEEDS_REVIEW decisions will only create a review page, no Slack post.");
   }
@@ -69,4 +79,7 @@ createServer(policies, registry, config).listen(port, () => {
   if (!config.reviewActionSecret) {
     console.log("REVIEW_ACTION_SECRET not set -- review pages remain visible but approve/deny actions are disabled.");
   }
-});
+  });
+}
+
+void start();
