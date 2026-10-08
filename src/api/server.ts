@@ -79,6 +79,10 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
   const rateLimiter = new RateLimiter(config.rateLimit?.maxRequests ?? 30, config.rateLimit?.windowMs ?? 60_000);
   app.use(express.json());
 
+  app.get("/healthz", (_req, res) => {
+    return res.status(200).json({ status: "ok" });
+  });
+
   function rateLimited(scope: string) {
     return (req: express.Request, res: Response, next: express.NextFunction) => {
       if (!rateLimiter.allow(`${scope}:${req.ip ?? "unknown"}`)) {

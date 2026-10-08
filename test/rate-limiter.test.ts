@@ -20,6 +20,20 @@ async function postJson(url: string, body: unknown): Promise<{ status: number; b
   return { status: response.status, body: await response.json().catch(() => null) };
 }
 
+test("GET /healthz returns a minimal liveness response", async () => {
+  const policies = new Map([["demo", buildDemoPolicy()]]);
+  const app = createServer(policies, buildDemoRegistry(), { baseUrl: "http://placeholder" });
+  const appHandle = await listen(http.createServer(app));
+
+  try {
+    const response = await fetch(`http://localhost:${appHandle.port}/healthz`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { status: "ok" });
+  } finally {
+    await appHandle.close();
+  }
+});
+
 // --- RateLimiter: unit tests ---
 
 test("RateLimiter allows requests up to the configured max within a window", () => {

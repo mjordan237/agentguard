@@ -340,11 +340,9 @@ there's no remaining "not yet built" list for the code itself. The
 decode-and-policy code has now been run against a real live Kora node on
 both devnet and mainnet (see above), `/gate-and-sign` validates the
 fee-payer identity and signs-and-sends rather than sign-only, both
-previously open questions, now resolved and tested. Computing a pending
-buffer's own executable hash for the Squads gate remains the one
-real-world step not yet done, called out above rather than glossed
-over.
-`npm test` runs 70 tests across decode integration, policy enforcement, escalation, ALT
+previously open questions, now resolved and tested. The Squads gate also
+reports the SHA-256 fingerprint of a pending buffer's executable bytes.
+`npm test` runs 90 tests across decode integration, policy enforcement, escalation, ALT
 resolution, the observability log, rate limiting, the Kora gate, and the Squads
 upgrade gate, all exercising real code paths (real transactions, a real
 local HTTP server, a real fake-Slack-webhook receiver, a real
@@ -469,3 +467,20 @@ assuming mainnet. `AGENTGUARD_DB_PATH` selects the SQLite file for durable
 reviews and evaluation history; it defaults to `agentguard.sqlite` in the
 current working directory. Node 22.13 or newer is required for Node's built-in
 SQLite module.
+
+### Container
+
+The image runs as the unprivileged `node` user and writes SQLite state to
+`/data/agentguard.sqlite`. Mount `/data` on persistent storage. The health
+probe is `GET /healthz`; it returns only `{ "status": "ok" }` and does not
+expose configuration or secrets.
+
+```bash
+docker build -t agentguard .
+docker run --rm -p 8787:8787 -v agentguard-data:/data \
+  -e RPC_URL=https://api.mainnet-beta.solana.com \
+  -e SOLANA_CLUSTER=mainnet-beta \
+  -e BASE_URL=https://agentguard.example.com \
+  -e REVIEW_ACTION_SECRET=replace-with-a-long-random-secret \
+  agentguard
+```

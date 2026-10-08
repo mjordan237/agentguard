@@ -1,0 +1,9 @@
+.git
+.github
+node_modules
+dist
+agentguard.sqlite
+agentguard.sqlite-shm
+agentguard.sqlite-wal
+.env
+npm-debug.log
