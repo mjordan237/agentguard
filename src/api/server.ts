@@ -76,7 +76,11 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
   const reviewStore = new PendingReviewStore({ expiresInMs: config.reviewExpiryMs, persistencePath: config.persistencePath });
   const dailySpend = new DailySpendTracker({ persistencePath: config.persistencePath });
   const evaluationLog = new EvaluationLog({ persistencePath: config.persistencePath });
-  const rateLimiter = new RateLimiter(config.rateLimit?.maxRequests ?? 30, config.rateLimit?.windowMs ?? 60_000);
+  const rateLimiter = new RateLimiter(
+    config.rateLimit?.maxRequests ?? 30,
+    config.rateLimit?.windowMs ?? 60_000,
+    { persistencePath: config.persistencePath }
+  );
   app.use(express.json());
 
   app.get("/healthz", (_req, res) => {

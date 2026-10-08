@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
 import http from "node:http";
 import { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { RateLimiter } from "../src/api/rate-limiter.js";
 import { createServer } from "../src/api/server.js";
 import { buildDemoRegistry, buildDemoPolicy } from "../demo/policy.js";
@@ -63,6 +66,52 @@ test("RateLimiter resets once the window has elapsed", async () => {
   assert.equal(limiter.allow("a"), false);
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.equal(limiter.allow("a"), true);
+});
+
+test("RateLimiter preserves an exhausted window across a new store instance", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentguard-rate-limit-"));
+  const persistencePath = join(directory, "agentguard.sqlite");
+  try {
+    const first = new RateLimiter(2, 60_000, { persistencePath });
+    assert.equal(first.allow("review-action:127.0.0.1"), true);
+    assert.equal(first.allow("review-action:127.0.0.1"), true);
+
+    const afterRestart = new RateLimiter(2, 60_000, { persistencePath });
+    assert.equal(afterRestart.allow("review-action:127.0.0.1"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("POST /evaluate remains rate-limited after a persisted server restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentguard-rate-limit-server-"));
+  const persistencePath = join(directory, "agentguard.sqlite");
+  const policies = new Map([["demo", buildDemoPolicy()]]);
+  const config = {
+    baseUrl: "http://placeholder",
+    persistencePath,
+    rateLimit: { maxRequests: 2, windowMs: 60_000 }
+  };
+  const body = { agentId: "agent-1", policyId: "demo", transactionBase64: "bogus" };
+  const firstHandle = await listen(http.createServer(createServer(policies, buildDemoRegistry(), config)));
+
+  try {
+    const firstUrl = `http://localhost:${firstHandle.port}`;
+    assert.notEqual((await postJson(`${firstUrl}/evaluate`, body)).status, 429);
+    assert.notEqual((await postJson(`${firstUrl}/evaluate`, body)).status, 429);
+    await firstHandle.close();
+
+    const secondHandle = await listen(http.createServer(createServer(policies, buildDemoRegistry(), config)));
+    try {
+      const afterRestart = await postJson(`http://localhost:${secondHandle.port}/evaluate`, body);
+      assert.equal(afterRestart.status, 429);
+      assert.equal(afterRestart.body.error, "RATE_LIMITED");
+    } finally {
+      await secondHandle.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 // --- Real /evaluate endpoint: rate limiting applied ---

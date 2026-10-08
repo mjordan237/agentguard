@@ -342,7 +342,7 @@ both devnet and mainnet (see above), `/gate-and-sign` validates the
 fee-payer identity and signs-and-sends rather than sign-only, both
 previously open questions, now resolved and tested. The Squads gate also
 reports the SHA-256 fingerprint of a pending buffer's executable bytes.
-`npm test` runs 93 tests across decode integration, policy enforcement, escalation, ALT
+`npm test` runs 95 tests across decode integration, policy enforcement, escalation, ALT
 resolution, the observability log, rate limiting, the Kora gate, and the Squads
 upgrade gate, all exercising real code paths (real transactions, a real
 local HTTP server, a real fake-Slack-webhook receiver, a real
@@ -371,16 +371,14 @@ discovered after the fact:
   and the record is not attributable to an individual identity. Deployments need a
   high-entropy secret plus gateway rate limiting. A production approval gate
   needs authenticated, attributable actors plus durable audit storage.
-- **Pending reviews, evaluation history, and daily spend totals are durable;
-  rate limits remain intentionally in-memory.** The production entrypoint
-  stores `PendingReviewStore`, `EvaluationLog`, and `DailySpendTracker` in a
-  local SQLite file (`AGENTGUARD_DB_PATH`, default `agentguard.sqlite`) so a
-  restart does not erase an approval request, its audit trail, or a day's
-  approved-spend total. `DailySpendTracker` is best-effort accounting for
+- **Pending reviews, evaluation history, daily spend totals, and rate-limit
+  windows are durable.** The production entrypoint stores these in a local
+  SQLite file (`AGENTGUARD_DB_PATH`, default `agentguard.sqlite`) so a restart
+  does not erase an approval request, its audit trail, a day's approved-spend
+  total, or the current review-secret guessing budget. `DailySpendTracker` is best-effort accounting for
   transactions approved by this service, not a reconciled on-chain settlement
   ledger: it has no transaction identity or settlement-status reconciliation.
-  `RateLimiter` remains process-local and resets on restart. SQLite is
-  local-disk persistence, not a distributed datastore:
+  SQLite is local-disk persistence, not a distributed datastore:
   it has no replication, backup policy, encryption, or cross-host coordination.
   It also depends on Node's built-in `node:sqlite` module, which Node itself
   still flags as experimental (confirmed: every run prints
