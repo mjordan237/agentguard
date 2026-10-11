@@ -300,14 +300,19 @@ each attributed to.
 Honest scope limit, stated plainly rather than implied away: even a
 `VERIFIED` outcome reports whether the program has *any* verified-build
 record on file, not a live cryptographic proof that the *specific
-pending buffer* matches it byte-for-byte. Doing that would mean
-computing the buffer account's own executable hash directly, and the
-exact on-chain byte layout for that wasn't confirmed precisely enough
-here to do safely -- guessing at it risked a silent, wrong hash that
-looks correct. Every upgrade this detects returns `NEEDS_REVIEW`,
-never an autonomous `ALLOW`, regardless of verification outcome; it
-hands a human real context where today they'd see nothing at all, not
-a cryptographic guarantee it doesn't yet have.
+pending buffer* matches it byte-for-byte. `getBufferBytecodeEvidence`
+now computes that buffer's own executable hash directly -- the on-chain
+`UpgradeableLoaderState::Buffer` layout (a four-byte bincode enum
+discriminant, then an `Option<Pubkey>` authority tag) is read precisely,
+trailing zero-padding stripped, and the result SHA-256 hashed -- but
+this is still a fingerprint for a human to compare against a separately
+trusted deterministic build, not a verified-build proof on its own:
+OtterSec's public API documents verification status by deployed program
+ID, not pending buffer ID, so there's no live service to check the
+fingerprint against automatically. Every upgrade this detects returns
+`NEEDS_REVIEW`, never an autonomous `ALLOW`, regardless of verification
+outcome; it hands a human real context where today they'd see nothing
+at all, not a cryptographic guarantee it doesn't yet have.
 `test/squads-upgrade-gate.test.ts` unit-tests discriminator/account-order
 parsing, ALT resolution (including multi-table ordering and every
 fail-closed path), and the tri-state verification outcome (including

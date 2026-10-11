@@ -111,7 +111,7 @@ gate into an actual record of what an agent tried to do over time.
 
 ## 7. Close honestly
 
-`npm test` -- 70 tests, all exercising real code paths: real
+`npm test` -- 95 tests, all exercising real code paths: real
 transactions, a real local HTTP server, a real fake-Slack-webhook
 receiver, a real fake-Kora-RPC server, a real locally-constructed
 Address Lookup Table, and real SDK-serialized Squads `VaultTransaction`
@@ -119,10 +119,15 @@ and `Proposal` accounts (see README's Squads upgrade gate section for
 what that covers). Beyond tests: the decode-and-policy code has been run
 against a real, live Kora relayer and a real signed transaction that
 actually landed and finalized on Solana mainnet (see README's Kora gate
-section for the transaction signature). Point to the README's Known
-Limitations section unprompted: the review link is a bearer token
-today, not yet authenticated; storage is in-memory; whether
-`/gate-and-sign` itself should validate fee-payer identity and
-sign-and-send rather than sign-only is still an open decision; and
-cryptographically verifying a pending Squads upgrade buffer's own
-bytecode is not yet demonstrated. Stated plainly, not glossed over.
+section for the transaction signature), and the whole service is now
+live on Railway against real mainnet RPC with persistent storage. Point
+to the README's Known Limitations section unprompted: review actions
+need a shared secret (`REVIEW_ACTION_SECRET`), not per-user identity --
+real authentication, but not attributable to an individual; pending
+reviews, evaluation history, daily spend, and rate limits all persist to
+SQLite when configured, but SQLite is local-disk, not a distributed
+datastore, and Node's own `node:sqlite` module is still experimental;
+and the Squads upgrade gate reports a pending buffer's SHA-256 bytecode
+fingerprint for a human to compare against a trusted build, which is
+real evidence but not a cryptographic verified-build proof on its own.
+Stated plainly, not glossed over.
