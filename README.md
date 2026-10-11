@@ -149,10 +149,10 @@ RATE_LIMITED` once exceeded. This closes the gap where hammering
 result, and the same protection covers the Squads endpoint's real RPC
 and OtterSec calls -- the limiter sits in front of each route, so a
 flood never reaches policy evaluation, Slack, or any external call at
-all. Like the other in-memory stores in this project, the limiter's
-state resets on restart and doesn't share across multiple server
-instances; a real deployment running more than one instance needs a
-shared backing store.
+all. The limiter's state persists to SQLite when `persistencePath` is
+configured (same file as the other durable stores), but it still
+doesn't share across multiple server instances; a real deployment
+running more than one instance needs a shared backing store.
 
 **Destination-allowlist and spend-limit enforcement is also real and
 confirmed working.** `evaluatePolicy` now checks `destinationAllowlist`,
@@ -171,10 +171,11 @@ cleanly decoded transfer -- no hidden instruction, nothing a
 discriminator check would flag -- to a destination that isn't an
 approved vendor, and it's still correctly blocked. `demo/over-limit-payment.ts`
 is the same, for an amount over the per-transaction cap. Daily-limit
-tracking is real too, via `DailySpendTracker` (in-memory, resets on
-process restart) -- only transactions that were actually `ALLOW`ed count
-against the day's budget, wired in at the server layer so the policy
-evaluator itself stays a pure, testable function.
+tracking is real too, via `DailySpendTracker` (persists to SQLite when
+configured, so a restart mid-day doesn't silently reset the budget) --
+only transactions that were actually `ALLOW`ed count against the day's
+budget, wired in at the server layer so the policy evaluator itself
+stays a pure, testable function.
 
 **Observability log is also real and confirmed working** (`src/observability/`).
 Every `/evaluate` call is now recorded -- `ALLOW` decisions included, not
@@ -186,10 +187,10 @@ by `?decision=`) plus a running `{total, allow, needsReview}`
 summary; `GET /transactions/:id` returns one entry by its `logEntryId`
 (now returned from every `/evaluate` response, ALLOW included). This is
 the piece that makes ClearSign an actual record of what agents tried to
-do over time, not just a stateless pass/fail gate. In-memory today
-(`EvaluationLog`), same as the other stores here -- the query interface
-is written so a real database can replace the storage later without
-changing callers.
+do over time, not just a stateless pass/fail gate. `EvaluationLog`
+persists to SQLite when configured, same as the other stores here --
+the query interface is written so a different database could replace
+SQLite later without changing callers.
 
 **`POST /gate-and-sign` gates Kora, the Solana Foundation's own relayer,
 and is real and tested** (`src/gateway/kora-gate.ts`). Kora already does
