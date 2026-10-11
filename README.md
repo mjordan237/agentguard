@@ -150,9 +150,10 @@ result, and the same protection covers the Squads endpoint's real RPC
 and OtterSec calls -- the limiter sits in front of each route, so a
 flood never reaches policy evaluation, Slack, or any external call at
 all. The limiter's state persists to SQLite when `persistencePath` is
-configured (same file as the other durable stores), but it still
-doesn't share across multiple server instances; a real deployment
-running more than one instance needs a shared backing store.
+configured (the same file as the other durable stores), and processes
+using that file share its current windows. It does not coordinate across
+separate hosts or separate disks; that deployment shape needs a shared
+backing store.
 
 **Destination-allowlist and spend-limit enforcement is also real and
 confirmed working.** `evaluatePolicy` now checks `destinationAllowlist`,
