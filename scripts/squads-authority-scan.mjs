@@ -1,6 +1,6 @@
 // Read-only scan: who holds each Solana program's upgrade authority, and is it a Squads multisig?
 //
-// Usage: node scripts/squads-authority-scan.mjs scripts/squads-scan-programs.csv [--json]
+// Usage: node scripts/squads-authority-scan.mjs <programs.csv> [--json]
 //   RPC_URL=<mainnet rpc>   defaults to the public mainnet endpoint (rate limited; use your own for long lists)
 //
 // Input CSV: name,programId   (lines starting with # are ignored)

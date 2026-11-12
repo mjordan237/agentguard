@@ -9,7 +9,7 @@ export function openApiDocument() {
     info: {
       title: "AgentGuard sandbox API",
       version: ENGINE.version,
-      description: "Check a Solana or EVM transaction against a policy before anything is signed. Nothing is signed or stored. Every result carries a receipt that `npm run check -- --json` reproduces locally from the same input."
+      description: "Evaluate a Solana or EVM transaction against a supplied policy. This preview does not sign transactions or persist requests. Results include hashes for comparison with the offline CLI using the same input."
     },
     paths: {
       "/v1": { get: { summary: "Engine version and limits", responses: { 200: { description: "Service information" } } } },

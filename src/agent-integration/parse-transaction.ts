@@ -93,7 +93,7 @@ export async function parseAndDecodeTransaction(
   });
 
   // Decoded in original transaction order, not grouped by outcome --
-  // order matters for a human (or a pitch video) reviewing what an
+  // order matters for a reviewer inspecting what an
   // agent actually did, instruction by instruction.
   const instructions: DecodedInstructionSummary[] = decodableInstructions.map((instruction) => {
     const extra = decodeJupiter(instruction.programId, instruction.accounts, instruction.instructionData)

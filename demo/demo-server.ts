@@ -1,7 +1,6 @@
 /**
- * The real AgentGuard server wired for demos and walkthroughs: one customer ("Acme Robotics") with a
- * vendor-payments policy, one named reviewer, and a stand-in relayer that returns a fake signature and never
- * touches a network. Used by `npm run quickstart` and by the video capture (live-flow.ts).
+ * The AgentGuard server configured for local demos: one customer ("Acme Robotics") with a
+ * vendor-payments policy, one named reviewer, and a stand-in relayer that returns a fake signature and uses only local HTTP. Used by `npm run quickstart` and `live-flow.ts`.
  */
 import http from "node:http";
 import { AddressInfo } from "node:net";

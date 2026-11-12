@@ -1,3 +1,0 @@
-AgentGuard
-
-Deterministic transaction review before an autonomous agent signs.

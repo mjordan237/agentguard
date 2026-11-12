@@ -287,7 +287,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
 
   /**
    * Open mode (no customers ever created, API keys not required): the per-IP limit applies and every
-   * caller sees the server's built-in policies -- the demo/hackathon behaviour. Otherwise a valid API key
+   * caller sees the server's built-in policies -- local demo behavior. Otherwise a valid API key
    * is required, the customer's own rate limit applies, and the request is scoped to that customer.
    * "Any customer ever created" (revoked included) keeps this from reopening if the last customer is revoked.
    */

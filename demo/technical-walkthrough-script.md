@@ -67,7 +67,7 @@ Use the authenticated operator queue and review detail to distinguish policy
 assessment, reviewer decision, approval consumption, and signing or vote outcome.
 Inspect the customer-scoped audit API and `src/observability/audit-log.ts`.
 
-Close with the README's current limitations: bearer-token reviewer access, local
+Close with the [documented limitations](../docs/integration-and-operations.md#known-limitations): bearer-token reviewer access, local
 SQLite storage, dependency advisories, and the integration checks still outstanding.
 For Squads, distinguish a proposed buffer's bytecode fingerprint from source verification.
 Do not claim that a service is deployed without checking its current deployment.

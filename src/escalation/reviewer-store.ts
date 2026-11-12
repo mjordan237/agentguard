@@ -7,9 +7,9 @@ import { openSqliteDatabase, type SqliteDatabase } from "../storage/sqlite.js";
  * hash of the token is stored; the token itself is shown once at creation.
  *
  * Tokens are 256 random bits, so a plain SHA-256 (no salt, no slow hash) is
- * the right tool: there is nothing to brute-force, and it lets us look a
+ * sufficient for lookup of high-entropy tokens, and it lets us look a
  * reviewer up by hash. This is a bearer token, not SSO or MFA -- anyone who
- * holds it is that reviewer. See README "Known limitations".
+ * holds it is that reviewer. See docs/integration-and-operations.md, "Known limitations".
  */
 export interface Reviewer {
   id: string;

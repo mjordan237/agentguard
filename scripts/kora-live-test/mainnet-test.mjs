@@ -11,7 +11,11 @@ import { buildDemoRegistry, buildDemoPolicy } from "../../dist/demo/policy.js";
 
 // Set AGENT_KEY_PATH to the local file containing the test wallet's private key.
 // Keep that file out of version control and do not paste its contents into logs.
-const AGENT_KEY_PATH = process.env.AGENT_KEY_PATH ?? `${process.env.HOME}/mainnet-agent-key.txt`;
+const AGENT_KEY_PATH = process.env.AGENT_KEY_PATH;
+if (!AGENT_KEY_PATH) {
+  console.error("Set AGENT_KEY_PATH to a protected local key file before running this manual mainnet test.");
+  process.exit(1);
+}
 
 // Deliberately tiny: this is a wiring proof, not a real payment. 0.01 SOL.
 const TEST_AMOUNT_LAMPORTS = 10_000_000;
@@ -31,14 +35,12 @@ try {
   agentWallet = Keypair.fromSecretKey(bs58.decode(raw));
 } catch (error) {
   console.error(`\nCouldn't load a key from ${AGENT_KEY_PATH}: ${error.message}`);
-  console.error("Create it yourself first: echo \"YOUR_BASE58_PRIVATE_KEY\" > ~/mainnet-agent-key.txt");
+  console.error("Provide the key through a protected local file; do not paste it into a shell command.");
   process.exit(1);
 }
 console.log("Agent wallet loaded:", agentWallet.publicKey.toBase58());
 
-// Sends to Kora's own fee-payer address, so nothing is lost -- the test
-// amount becomes part of Kora's operating float, which AgentGuard's
-// production setup needs anyway, rather than going to a throwaway.
+// The transfer recipient is the configured Kora fee payer. Verify ownership before running.
 const vendor = feePayer;
 
 const agentBalance = await connection.getBalance(agentWallet.publicKey);
@@ -57,7 +59,7 @@ if (feePayerBalance < 5000) {
 
 console.log(`\n--- About to transfer ${TEST_AMOUNT_LAMPORTS} lamports (${TEST_AMOUNT_LAMPORTS / 1e9} SOL, real money) ---`);
 console.log(`From: ${agentWallet.publicKey.toBase58()}`);
-console.log(`To:   ${vendor.toBase58()} (Kora's own fee-payer address -- stays in your control)`);
+console.log(`To:   ${vendor.toBase58()} (configured Kora fee-payer address)`);
 console.log("Waiting 5 seconds before proceeding. Ctrl+C now to cancel.");
 await new Promise((resolve) => setTimeout(resolve, 5000));
 

@@ -1,16 +1,6 @@
 import type { PendingReview } from "./pending-store.js";
 
-/**
- * Posts a NEEDS_REVIEW decision to a Slack Incoming Webhook with the
- * decoded human-readable diff, plus a link to a self-hosted approve/deny
- * page (see review-routes.ts).
- *
- * Deliberately does NOT use Slack interactive Block Kit buttons -- those
- * require a full Slack App with an interactivity request URL and
- * signing-secret verification, which is real additional scope. A plain
- * link to our own approve/deny page gets the same human-in-the-loop
- * outcome without it.
- */
+/** Posts the policy reasons, decoded instructions and authenticated review-page link to a Slack incoming webhook. Decisions are made on the review page. */
 
 /** agentId is an unrestricted client string; Slack renders &, <, > as markup, so an unescaped value could inject a fake link or an @channel ping. */
 function escapeSlackMrkdwn(value: string): string {
