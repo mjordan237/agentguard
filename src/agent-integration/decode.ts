@@ -53,6 +53,19 @@ export function decodeTransaction(feePayer: string, instructions: RawInstruction
       : undefined;
     const rawAmount = policy?.amountArgName ? result.fields[policy.amountArgName] : undefined;
     const amount = typeof rawAmount === "bigint" ? rawAmount : undefined;
+    let asset = amount !== undefined ? (policy?.asset ?? "native") : undefined;
+    if (amount !== undefined && policy?.assetAccountName) {
+      asset = resolveDestinationAccount(instruction.idl, instruction.instructionName, instruction.accounts, policy.assetAccountName);
+      if (asset === undefined || asset === "unknown") {
+        return {
+          programId: instruction.programId,
+          instructionName: instruction.instructionName,
+          fields: { reason: `Could not resolve the asset account "${policy.assetAccountName}"; refusing to guess which asset this moves.` },
+          mode: "raw_dump" as const,
+          accounts: instruction.accounts
+        };
+      }
+    }
 
     return {
       programId: instruction.programId,
@@ -62,7 +75,7 @@ export function decodeTransaction(feePayer: string, instructions: RawInstruction
       accounts: instruction.accounts,
       destination,
       amount,
-      asset: amount !== undefined ? (policy?.asset ?? "native") : undefined
+      asset
     };
   });
 

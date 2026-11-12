@@ -44,4 +44,4 @@ for (const instruction of decoded.instructions) {
 }
 console.log();
 console.log(`Decision: ${evaluation.decision}`);
-if (evaluation.reasons.length > 0) console.log(`Reasons: ${evaluation.reasons.join("; ")}`);
+if (evaluation.reasons.length > 0) console.log(`Reasons: ${evaluation.reasons.join(" ")}`);

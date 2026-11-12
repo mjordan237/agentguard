@@ -5,7 +5,7 @@ import http from "node:http";
 import { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RateLimiter } from "../src/api/rate-limiter.js";
+import { clientKey, RateLimiter } from "../src/api/rate-limiter.js";
 import { createServer } from "../src/api/server.js";
 import { buildDemoRegistry, buildDemoPolicy } from "../demo/policy.js";
 
@@ -189,4 +189,34 @@ test("POST /squads/upgrade-check returns 429 once the configured rate limit is e
   } finally {
     await appHandle.close();
   }
+});
+
+test("IPv6 clients are limited per /64, IPv4 and IPv4-mapped per address", () => {
+  assert.equal(clientKey("2001:db8:1:2:aaaa::1"), "2001:db8:1:2::/64");
+  assert.equal(clientKey("2001:0db8:0001:0002:ffff:ffff:ffff:ffff"), "2001:db8:1:2::/64");
+  assert.equal(clientKey("2001:db8::1"), "2001:db8:0:0::/64");
+  assert.equal(clientKey("::ffff:203.0.113.9"), "203.0.113.9");
+  assert.equal(clientKey("203.0.113.9"), "203.0.113.9");
+  assert.equal(clientKey(undefined), "unknown");
+});
+
+test("the in-memory limiter stays bounded when many clients come and go", () => {
+  const limiter = new RateLimiter(5, 60_000);
+  assert.equal(limiter.allow("busy"), true);
+  for (let i = 0; i < 25_000; i++) limiter.allow(`client-${i}`);
+  const tracked = (limiter as unknown as { hits: Map<string, unknown> }).hits.size;
+  assert.ok(tracked <= 10_001, `tracked ${tracked} keys`);
+  // A client already tracked keeps its own window and count through the flood.
+  for (let i = 0; i < 4; i++) assert.equal(limiter.allow("busy"), true);
+  assert.equal(limiter.allow("busy"), false);
+});
+
+test("a flood of new clients never unblocks a client that is over its limit", () => {
+  const limiter = new RateLimiter(1, 60_000);
+  assert.equal(limiter.allow("victim"), true);
+  assert.equal(limiter.allow("victim"), false);
+  for (let i = 0; i < 12_000; i++) limiter.allow(`flood-${i}`);
+  assert.equal(limiter.allow("victim"), false, "still blocked after the flood");
+  // New arrivals during the flood share one overflow window instead of growing the map.
+  assert.ok((limiter as unknown as { hits: Map<string, unknown> }).hits.size <= 10_001);
 });

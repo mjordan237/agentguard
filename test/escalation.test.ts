@@ -5,6 +5,7 @@ import { AddressInfo } from "node:net";
 import { Keypair, SystemProgram, TransactionMessage, VersionedTransaction, PublicKey } from "@solana/web3.js";
 import { createServer } from "../src/api/server.js";
 import { buildDemoRegistry, buildDemoPolicy } from "../demo/policy.js";
+import { readReview } from "./review-detail-helper.js";
 
 function listen(server: http.Server): Promise<{ port: number; close: () => Promise<void> }> {
   return new Promise((resolve) => {
@@ -148,8 +149,15 @@ test("NEEDS_REVIEW escalates to Slack and can be approved through the review pag
     const beforeApproval = await fetch(`${baseUrl}/review/${reviewId}`);
     const beforeHtml = await beforeApproval.text();
     assert.equal(beforeApproval.status, 200);
-    assert.ok(beforeHtml.includes("PENDING"));
-    assert.ok(beforeHtml.includes("Approve"));
+    assert.equal(beforeApproval.headers.get("x-frame-options"), "DENY");
+    assert.match(beforeApproval.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
+    assert.equal(beforeApproval.headers.get("referrer-policy"), "no-referrer");
+    assert.equal(beforeApproval.headers.get("cache-control"), "no-store");
+    // The link opens a sign-in page; the review itself is read only with a credential.
+    assert.ok(!beforeHtml.includes(reviewId) && !beforeHtml.includes("demo-agent"), "no review data before sign-in");
+    const before = await readReview(baseUrl, reviewId, { secret: "test-review-secret" });
+    assert.equal(before.status, "PENDING");
+    assert.equal(before.actionable, true);
 
     const approve = await fetch(`${baseUrl}/review/${reviewId}/approve`, {
       method: "POST",
@@ -158,13 +166,11 @@ test("NEEDS_REVIEW escalates to Slack and can be approved through the review pag
     });
     assert.equal(approve.status, 302);
 
-    const afterApproval = await fetch(`${baseUrl}/review/${reviewId}`);
-    const afterHtml = await afterApproval.text();
-    assert.ok(afterHtml.includes("APPROVED"));
-    assert.ok(afterHtml.includes("Created:"));
-    assert.ok(afterHtml.includes("Expires:"));
-    assert.ok(afterHtml.includes("at "), "resolved review should show when it was acted on");
-    assert.ok(!afterHtml.includes("<button"), "resolved review should no longer show approve/deny buttons");
+    const after = await readReview(baseUrl, reviewId, { secret: "test-review-secret" });
+    assert.equal(after.status, "APPROVED");
+    assert.ok(after.createdAt && after.expiresAt);
+    assert.ok(after.resolvedAt, "resolved review should show when it was acted on");
+    assert.equal(after.actionable, false, "resolved review should no longer offer approve/deny");
   } finally {
     await appHandle.close();
     await slackHandle.close();
@@ -178,10 +184,9 @@ test("a correct review action secret approves a pending review and records the r
     const approval = await postReviewAction(`${app.baseUrl}/review/${reviewId}/approve`, "review-secret");
     assert.equal(approval.status, 302);
 
-    const page = await fetch(`${app.baseUrl}/review/${reviewId}`);
-    const html = await page.text();
-    assert.ok(html.includes("APPROVED"));
-    assert.ok(html.includes("at "));
+    const view = await readReview(app.baseUrl, reviewId, { secret: "review-secret" });
+    assert.equal(view.status, "APPROVED");
+    assert.ok(view.resolvedAt);
   } finally {
     await app.close();
   }
@@ -194,10 +199,9 @@ test("a correct secret submitted through the review form denies a pending review
     const denial = await postReviewAction(`${app.baseUrl}/review/${reviewId}/deny`, "review-secret", "form");
     assert.equal(denial.status, 302);
 
-    const page = await fetch(`${app.baseUrl}/review/${reviewId}`);
-    const html = await page.text();
-    assert.ok(html.includes("DENIED"));
-    assert.ok(html.includes("at "));
+    const view = await readReview(app.baseUrl, reviewId, { secret: "review-secret" });
+    assert.equal(view.status, "DENIED");
+    assert.ok(view.resolvedAt);
   } finally {
     await app.close();
   }
@@ -210,8 +214,7 @@ test("a missing review action secret cannot approve a review", async () => {
     const approval = await postReviewAction(`${app.baseUrl}/review/${reviewId}/approve`, undefined);
     assert.equal(approval.status, 401);
 
-    const page = await fetch(`${app.baseUrl}/review/${reviewId}`);
-    assert.ok((await page.text()).includes("PENDING"));
+    assert.equal((await readReview(app.baseUrl, reviewId, { secret: "review-secret" })).status, "PENDING");
   } finally {
     await app.close();
   }
@@ -224,8 +227,7 @@ test("a wrong review action secret cannot deny a review", async () => {
     const denial = await postReviewAction(`${app.baseUrl}/review/${reviewId}/deny`, "wrong-secret");
     assert.equal(denial.status, 401);
 
-    const page = await fetch(`${app.baseUrl}/review/${reviewId}`);
-    assert.ok((await page.text()).includes("PENDING"));
+    assert.equal((await readReview(app.baseUrl, reviewId, { secret: "review-secret" })).status, "PENDING");
   } finally {
     await app.close();
   }
@@ -257,11 +259,13 @@ test("review mutations fail closed when no action secret is configured", async (
     const approval = await postReviewAction(`${app.baseUrl}/review/${reviewId}/approve`, "any-secret");
     assert.equal(approval.status, 503);
 
-    const page = await fetch(`${app.baseUrl}/review/${reviewId}`);
-    const html = await page.text();
-    assert.ok(html.includes("PENDING"));
-    assert.ok(html.includes("actions are disabled"));
-    assert.ok(!html.includes('name="secret"'));
+    // Nobody can sign in, so the review is not readable through the review pages either; the agent's own
+    // status endpoint (open mode here) still shows it untouched.
+    const blocked = await fetch(`${app.baseUrl}/operator/api/reviews/${reviewId}`, { headers: { "x-review-action-secret": "any-secret" } });
+    assert.equal(blocked.status, 503);
+    assert.match(((await blocked.json()) as { message: string }).message, /switched off/);
+    assert.equal(((await (await fetch(`${app.baseUrl}/reviews/${reviewId}`)).json()) as { status: string }).status, "PENDING");
+    assert.ok(!(await (await fetch(`${app.baseUrl}/review/${reviewId}`)).text()).includes('name="secret"'));
   } finally {
     await app.close();
   }
@@ -275,8 +279,7 @@ test("an expired review cannot be approved even with the correct secret", async 
     const approval = await postReviewAction(`${app.baseUrl}/review/${reviewId}/approve`, "review-secret");
     assert.equal(approval.status, 410);
 
-    const page = await fetch(`${app.baseUrl}/review/${reviewId}`);
-    assert.ok((await page.text()).includes("EXPIRED"));
+    assert.equal((await readReview(app.baseUrl, reviewId, { secret: "review-secret" })).status, "EXPIRED");
   } finally {
     await app.close();
   }
@@ -290,8 +293,7 @@ test("an expired review cannot be denied even with the correct secret", async ()
     const denial = await postReviewAction(`${app.baseUrl}/review/${reviewId}/deny`, "review-secret");
     assert.equal(denial.status, 410);
 
-    const page = await fetch(`${app.baseUrl}/review/${reviewId}`);
-    assert.ok((await page.text()).includes("EXPIRED"));
+    assert.equal((await readReview(app.baseUrl, reviewId, { secret: "review-secret" })).status, "EXPIRED");
   } finally {
     await app.close();
   }
@@ -304,10 +306,8 @@ test("a resolved review cannot be flipped by a later action", async () => {
     assert.equal((await postReviewAction(`${app.baseUrl}/review/${reviewId}/approve`, "review-secret")).status, 302);
     assert.equal((await postReviewAction(`${app.baseUrl}/review/${reviewId}/deny`, "review-secret")).status, 302);
 
-    const page = await fetch(`${app.baseUrl}/review/${reviewId}`);
-    const html = await page.text();
-    assert.ok(html.includes("APPROVED"));
-    assert.ok(!html.includes("DENIED"));
+    const view = await readReview(app.baseUrl, reviewId, { secret: "review-secret" });
+    assert.equal(view.status, "APPROVED");
   } finally {
     await app.close();
   }

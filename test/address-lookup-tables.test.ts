@@ -108,3 +108,11 @@ test("fails closed when the resolver can't find the lookup table", async () => {
   assert.equal(decoded.instructions[0].mode, "raw_dump");
   assert.match(String(decoded.instructions[0].fields.reason), /could not be resolved/);
 });
+
+test("a lookup table that takes too long to read resolves to nothing, so the transaction is held, not hung", async () => {
+  const { withLookupTimeout } = await import("../src/agent-integration/parse-transaction.js");
+  const slow = withLookupTimeout(() => new Promise(() => {}), 50);
+  const started = Date.now();
+  assert.equal(await slow(PublicKey.default), null);
+  assert.ok(Date.now() - started < 1_000);
+});

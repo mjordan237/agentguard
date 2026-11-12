@@ -437,3 +437,35 @@ test("POST /squads/upgrade-check fails closed with CONNECTION_NOT_CONFIGURED whe
     await appHandle.close();
   }
 });
+
+test("POST /squads/upgrade-check flags a proposal that only hands over a program's upgrade authority as CONTROL_CHANGE", async () => {
+  const multisigPda = Keypair.generate().publicKey;
+  const [transactionPda] = getTransactionPda({ multisigPda, index: 1n });
+  const [proposalPda] = getProposalPda({ multisigPda, transactionIndex: 1n });
+  const programData = Keypair.generate().publicKey;
+  const currentAuthority = Keypair.generate().publicKey;
+  const attacker = Keypair.generate().publicKey;
+  const handover = {
+    numSigners: 1,
+    numWritableSigners: 1,
+    numWritableNonSigners: 1,
+    accountKeys: [currentAuthority, programData, BPF_UPGRADEABLE_LOADER_PROGRAM_ID, attacker],
+    instructions: [{ programIdIndex: 2, accountIndexes: new Uint8Array([1, 0, 3]), data: new Uint8Array([4, 0, 0, 0, 1]) }],
+    addressTableLookups: []
+  };
+  const data = new Map<string, AccountInfo<Buffer> | null>([
+    [transactionPda.toBase58(), accountInfo(serializeVaultTransaction(multisigPda, 1, handover))],
+    [proposalPda.toBase58(), accountInfo(serializeProposal(multisigPda, 1, "Active"))]
+  ]);
+
+  const server = await startServer(fakeConnection(data));
+  try {
+    const result = await postJson(`${server.baseUrl}/squads/upgrade-check`, { multisigPda: multisigPda.toBase58(), transactionIndex: 1 });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.decision, "CONTROL_CHANGE", "an authority handover must not read as NOT_AN_UPGRADE");
+    assert.deepEqual(result.body.controlChanges, [{ kind: "SetAuthority", account: programData.toBase58(), counterparty: attacker.toBase58() }]);
+    assert.ok(result.body.reasons.some((reason: string) => reason.includes(attacker.toBase58())));
+  } finally {
+    await server.close();
+  }
+});

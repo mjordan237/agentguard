@@ -1,0 +1,12 @@
+{
+  "program": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+  "idlAccount": "C88XWfp26heEmDkmfSzeXP7Fd7GQJ2j9dDTUsyiZbUTa",
+  "owner": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+  "endpoint": "https://api.mainnet-beta.solana.com",
+  "commitment": "finalized",
+  "slot": 464007573,
+  "fetchedAt": "2026-11-01T07:27:05.496Z",
+  "compressedLength": 5342,
+  "idlBytes": 33464,
+  "sha256": "e6c2b425ec740922ee91aa7a3278cea07f4bc00a3ed9efa4eca16facb481bfca"
+}

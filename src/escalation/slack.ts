@@ -33,9 +33,18 @@ export async function escalateToSlack(review: PendingReview, webhookUrl: string,
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*Agent:* \`${escapeSlackMrkdwn(review.agentId)}\`\n*Fee payer:* \`${escapeSlackMrkdwn(review.evaluation.decoded.feePayer)}\`\n*Reasons:* ${escapeSlackMrkdwn(review.evaluation.reasons.join("; ") || "none given")}`
+          text: `*Agent:* \`${escapeSlackMrkdwn(review.agentId)}\`\n*Fee payer:* \`${escapeSlackMrkdwn(review.evaluation.decoded.feePayer)}\`\n*Reasons:* ${escapeSlackMrkdwn(review.evaluation.reasons.join(" ") || "none given")}`
         }
       },
+      ...(review.explanation
+        ? [{
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `*AI note (advisory only, ${escapeSlackMrkdwn(review.explanation.model)}):* ${review.explanation.truncated ? "(the model saw only part of the transaction) " : ""}${escapeSlackMrkdwn(review.explanation.summary)}${review.explanation.risks.map((risk) => `\n  - ${escapeSlackMrkdwn(risk)}`).join("")}`
+            }
+          }]
+        : []),
       {
         type: "section",
         text: { type: "mrkdwn", text: `*Decoded instructions:*\n${lines.join("\n")}` }

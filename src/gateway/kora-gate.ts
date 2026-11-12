@@ -27,6 +27,26 @@ export class KoraFeePayerMismatchError extends Error {
 }
 
 /**
+ * The fee payer is named by an instruction, so the relayer's own account would be a source, authority or
+ * funder in it (a transfer out of the relayer, rent paid by the relayer). The relayer only pays fees.
+ */
+export class KoraFeePayerInInstructionError extends Error {
+  constructor(public readonly feePayer: string, public readonly instructionIndex: number) {
+    super(`Instruction ${instructionIndex} uses the fee payer ${feePayer} as an account. The relayer only pays the fee; use the agent's own account instead.`);
+    this.name = "KoraFeePayerInInstructionError";
+  }
+}
+
+/**
+ * True when Kora refused because simulating the transaction failed (an expired blockhash, an unfunded account).
+ * A transaction that fails simulation is never broadcast, so it certainly did not land. Seen on devnet:
+ * "RPC Error -32000: Invalid transaction: Transaction simulation failed: Blockhash not found".
+ */
+export function isSimulationRejection(error: unknown): boolean {
+  return error instanceof Error && /Transaction simulation failed/.test(error.message);
+}
+
+/**
  * Only ever called after policy has already returned ALLOW -- never for
  * NEEDS_REVIEW. Validates the transaction's fee payer against Kora's real
  * configured signer before forwarding, then signs AND submits -- not
@@ -43,6 +63,12 @@ export async function signThroughKora(config: KoraGateConfig, transactionBase64:
   if (feePayerInTx !== signer_address) {
     throw new KoraFeePayerMismatchError(signer_address, feePayerInTx);
   }
+  // Index 0 is the fee payer. The runtime rejects a key loaded twice, so a lookup table cannot alias it.
+  tx.message.compiledInstructions.forEach((instruction, index) => {
+    if (instruction.programIdIndex === 0 || instruction.accountKeyIndexes.includes(0)) {
+      throw new KoraFeePayerInInstructionError(signer_address, index);
+    }
+  });
 
   return config.client.signAndSendTransaction({ transaction: transactionBase64 });
 }

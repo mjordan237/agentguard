@@ -15,6 +15,13 @@ export interface InstructionPolicyMetadata {
   amountArgName?: string;
   /** Key into Policy.maxAmountPerTransaction / maxAmountPerDay. Defaults to "native" (SOL). */
   asset?: string;
+  /**
+   * For token transfers the asset is the mint, which is an account in the instruction, not a constant.
+   * Names that account (for example "mint"); its address becomes the asset key. If the account cannot be
+   * resolved the instruction is not decoded as a value transfer (it falls to raw_dump and goes to review),
+   * so a token amount is never compared against a SOL limit.
+   */
+  assetAccountName?: string;
 }
 
 export interface RegisteredProgram {

@@ -13,6 +13,7 @@ import { EvaluationLog } from "../src/observability/evaluation-log.js";
 import { DailySpendTracker } from "../src/policy/daily-spend-tracker.js";
 import { openSqliteDatabase } from "../src/storage/sqlite.js";
 import { buildDemoPolicy, buildDemoRegistry } from "../demo/policy.js";
+import { readReview } from "./review-detail-helper.js";
 
 function listen(server: http.Server): Promise<{ port: number; close: () => Promise<void> }> {
   return new Promise((resolve) => {
@@ -115,10 +116,9 @@ test("pending reviews and evaluation history survive a server restart when persi
     await first.close();
     const second = await startPersistentServer(persistencePath);
     try {
-      const review = await fetch(`${second.baseUrl}/review/${result.body.reviewId}`);
-      const reviewHtml = await review.text();
-      assert.equal(review.status, 200);
-      assert.ok(reviewHtml.includes("PENDING"));
+      const review = await readReview(second.baseUrl, result.body.reviewId, { secret: "restart-test-secret" });
+      assert.equal(review.status, "PENDING");
+      assert.equal(review.agentId, "restart-agent");
 
       const history = await fetch(`${second.baseUrl}/agents/restart-agent/history`);
       const historyBody = await history.json();
@@ -133,8 +133,7 @@ test("pending reviews and evaluation history survive a server restart when persi
       });
       assert.equal(approval.status, 302);
 
-      const resolved = await fetch(`${second.baseUrl}/review/${result.body.reviewId}`);
-      assert.ok((await resolved.text()).includes("APPROVED"));
+      assert.equal((await readReview(second.baseUrl, result.body.reviewId, { secret: "restart-test-secret" })).status, "APPROVED");
     } finally {
       await second.close();
     }
@@ -180,7 +179,8 @@ test("daily spend remains enforced after a server restart", async () => {
     const allowed = await postJson(`${first.baseUrl}/evaluate`, {
       agentId: "spend-restart-agent",
       policyId: "demo",
-      transactionBase64: transfer
+      transactionBase64: transfer,
+      reserve: true
     });
     assert.equal(allowed.status, 200);
     assert.equal(allowed.body.decision, "ALLOW");

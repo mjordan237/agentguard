@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Paced walkthrough for recording the Colosseum demo video (<=3 min).
-# Run this, hit screen-record first, then just read each cue aloud in
-# your own words while the real output plays -- nothing here is staged,
-# every command below runs the actual built demo scripts.
+# Paced recording of four local policy-evaluation scenarios.
+# Start screen recording before running this script.
+# These commands evaluate transactions; they do not sign or submit them.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,35 +29,35 @@ echo "${bold}Building the project (silent, so the recording starts clean)...${re
 npm run build >/dev/null
 
 clear
-cue "AgentGuard sits between an agent and its wallet. Before anything signs, it decodes registered instructions, checks them against policy, and routes unknown or policy-violating actions to human review."
+cue "These four local scenarios show transaction decoding and policy evaluation. They do not sign or submit transactions."
 sleep 1
 
 clear
-cue "First: a normal vendor payment. One transfer, decodes cleanly, matches policy -- this should just go through."
+cue "First, a transfer to an approved vendor within the policy's amount limit. Check that the decision is ALLOW."
 node dist/demo/legitimate-payment.js
 pause_on_result
 
 clear
-cue "Same payment, but a second instruction has been quietly appended -- it reassigns the agent's own account to an attacker-controlled program. It moves zero balance, so anything that only checks balances would miss this completely."
+cue "The next transaction adds an account-assignment instruction. Check that the undecoded instruction produces NEEDS_REVIEW."
 node dist/demo/adversarial-payment.js
 pause_on_result
 
 clear
-cue "That second instruction isn't in AgentGuard's registry, so it refuses to guess what it does -- and flags the whole transaction for a human, instead of either blocking blindly or letting it through."
+cue "The demo registry does not decode that second instruction. The policy holds the transaction for review."
 sleep 1
 
 clear
-cue "This next one decodes perfectly clean -- nothing hidden. It's just paying an address that was never approved. The kind of mistake a prompt-injected agent could make without any instruction looking wrong."
+cue "The next transfer can be decoded, but its destination is absent from the allowlist. Check the destination reason."
 node dist/demo/unapproved-destination-payment.js
 pause_on_result
 
 clear
-cue "Same idea, different rule -- a real approved vendor, but the amount is over the daily limit."
+cue "This transfer names an approved vendor but exceeds the per-transaction amount limit."
 node dist/demo/over-limit-payment.js
 pause_on_result
 
 clear
-cue "Every one of those blocked transactions becomes a real review task for a human -- not a black box, not a silent guess. That's AgentGuard."
+cue "The three held scenarios return NEEDS_REVIEW. Run the separate quickstart to demonstrate the authenticated review and signing flow with a stand-in relayer."
 sleep 1
 
 echo

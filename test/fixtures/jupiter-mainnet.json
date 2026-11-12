@@ -1,0 +1,222 @@
+{
+ "source": "Read-only getTransaction from api.mainnet-beta.solana.com, 2026-11-07. Lookup-table entries are the addresses each transaction loaded.",
+ "transactions": [
+  {
+   "signature": "4dq1hPE8wEe4wGShBhx4ZaeqNPmntYqjPsDsYej7hganBmX36QgCCdoG7uHja8sQhShcqmfcJ8rwyjKvFDSS3YU9",
+   "slot": 466215373,
+   "kind": "route",
+   "transactionBase64": "AbXPVLEqS33FCH7yci932Wn9y+Fmy46XJvqGqRNqLIuL40KfWn+e9CpbtTJPIvKpaP56LyqPFdxs0gWXipw/pAKAAQAHEUcZr9LU2TbCDqpvCzL03fbHELR6VyBQQ9LUmnGU7vmWCwpRbXPj/vprGVi+0l69sQxyGcSqPp/CoBdzr9kObaNLl6gTd4+C0CRoWZEZaJ4RDFh3VaoQbr7lWqFzNFXlhVh/mORVGJsm2ufQq9VZOMq1qQ12R83r7d+V9YPYR9FNdOtdyR6mNPZxD4Wg3+h94A5mNPLm1TG/h/oCVlR7Fr6Qz+vXQLAH5yTKJefMmKhwAuJAQGEV0N4Df/6scfU4AMi9/pjJuHTPc5U+o1wzYWP9KXXghBsdLnCR5rI9TXCIzAlHtaiOdX39ifTdZxdxUkr7+O1Hs7BFP6HGWg68HCTP4d6Vub4ZY7PvVmha1ZXuhZykGXskHijEm1hQWBqxktAxuSTIFnhjDiWi7btT2R1HWpYXuj6gF1OMzUPrxum+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABph+T5KGbR1PVZx1RTk+L630j7BosFmgDQa0+/lCtnwMGRm/lIRcy/+ytunLDm+e8jOW7xfcSayxDmzpAAAAABHnVW/IxwG7udMVuzmgVB/2xst6j9I5RArHNola8E48G3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqYyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZtD/6J/XX9kp0wJsfKVh53ksJqzbfyd1RSzIap7OM5ejX95HuEsd5uyOcLLq0AAhPXQ1Nl7OV9dBajIuIJSELwgQMAAUCg24BAA8GAAkAEgoOAQENGQ4ACAkNEg0QDRQTDhEABQsSCAIJAwYHBAEl5RfLl3rjrSoBAAAALwEAZAABMjJobgAAAADzXKIBAAAAAFAAAA4DCQAAAQkBWaLM1FXRsUOqLNrzBjFVvP7Bg4zQxhOah+1Q3zBVKWIABDASWjM=",
+   "lookups": [
+    {
+     "table": "72uGSze4fAVmTxrjZg5C6Nk13BBhJ9GipSr7pvS2DoMK",
+     "readonlyIndexes": [
+      48,
+      18,
+      90,
+      51
+     ],
+     "writableIndexes": []
+    }
+   ],
+   "loadedAddresses": {
+    "readonly": [
+     "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+     "So11111111111111111111111111111111111111112",
+     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+     "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+    ],
+    "writable": []
+   }
+  },
+  {
+   "signature": "51rcXMLDpnJDJRJCKKvh64HV8F1NgjXCPiZ7fQZiZjhYq7SiaMfQa4FBh5e9gWQcsFjcB7JT7csyaSZYK2KYZ5gs",
+   "slot": 466215366,
+   "kind": "shared_accounts_route",
+   "transactionBase64": "AcjOPuS2qZhQbACcF2m3As4npeRXmFuzez2kOocJfTeneX+qn+Y0xndH4yEq9PNUxofJlU9Wbk4mdi66kNLaywiAAQAKEnM2Kqo6RrdBWEZ8RDPbU0IIjv0vsZUbiuVOdgpk2467InYdGwrDYU8Wo8E07bB9U3O2v7iZNT0DHYUdeHZP21g7uwBHaANLT5HUdeSqqOvRajf5q5h4lC2rSKXgMC6aCE/IePkxuR0MkiLLQWlu1fXxF0LWh5hM7CrZfiXFMJ5KixxYUd2esngoovHH99C2X+FEsoYOQ1Y1+nVUIsfszzeUWdeUhAaE788gSimV4XGD1XliRnOe31Sf0y1wA9e3NaIdmklnVTL3GrXKI61rcFwE4jsO/6OYROzRbst6fL4C37C4X+xX/TaH3D4CMgGzMrZuYIE8isJkfiaoF1FwEVUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMGRm/lIRcy/+ytunLDm+e8jOW7xfcSayxDmzpAAAAABDa33qHm1lVtheeYFmPMzvFiNNY1QTaaC86t21pg50gEedVb8jHAbu50xW7OaBUH/bGy3qP0jlECsc2iVrwTjwbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCpT0tsDkEI/SpqJHjq4KzFnbIbtO31EcFiz2AtHgwJAfuMlyWPTiSJ8bs9ECkUjg2DC1oTmdr/EIQEjnvY2+n4WbQ/+if11/ZKdMCbHylYed5LCas238ndUUsyGqezjOXovpOagwn1ZAcYf/8wrFSxaUmL6Z9tjhv9QkRoDNT30eLOAQ5gr+2yJxe9YxkvVBRaP5ZaM7uC0scCnrLOHiCCZE1RHc0pQ3R/BmPDn/cfQOdeHirjDPr8WVfpYCym3WQ6BwkABQKq5AIACQAJAyJOAAAAAAAADgYABAAfCAwBAQgCAAQMAgAAAEBLTAAAAAAADAEEARELMAwNAAQGAgEfEQsLDwsjDSUcBgcdGRsMBRoDCx4NIRIHAhQYFgwgJCYRIhMVFxAKCyjBIJszQdacgQcCAAAAGmQAAZxkAQJAS0wAAAAAAGnlBgAAAAAA6AMADAMEAAABCQJXDz4Oeb6pmVu1PJLvtj1AYY3dcpVqKyIfOMSd7GXDTgctNC8xMDMsBi4HATg1YfTFEfQ+utmYAd4bNhnzAHiZyUyDtdqs+NUk6fC8sRXqBc/SztTRA5NCkQ==",
+   "lookups": [
+    {
+     "table": "6rqx7NGgRAtGiAsBE6RAxWMaNQfSgzRy1tMSNML4GzQm",
+     "readonlyIndexes": [
+      46,
+      7,
+      1,
+      56,
+      53,
+      97
+     ],
+     "writableIndexes": [
+      45,
+      52,
+      47,
+      49,
+      48,
+      51,
+      44
+     ]
+    },
+    {
+     "table": "HUUmYpLQCTFdJjmq3QYja2JhnDZxTVjYkX2YtFjKNpam",
+     "readonlyIndexes": [
+      147,
+      66,
+      145
+     ],
+     "writableIndexes": [
+      207,
+      210,
+      206,
+      212,
+      209
+     ]
+    }
+   ],
+   "loadedAddresses": {
+    "readonly": [
+     "REALQqNEomY6cQGZJUGwywTBD2UmDT32rZcNnfxQ5N2",
+     "So11111111111111111111111111111111111111112",
+     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+     "96FHuHDcv9FL55qhoBoUGAmxZg9XM47fBM3t2vdefGW2",
+     "AsotAq6Hb5KW6bAExHq2hJctDNuErLEjaVSaR4yJ5WEj",
+     "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+     "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+     "4BLNHtVe942GSs4teSZqGX24xwKNkqU7bGgNn3iUiUpw",
+     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    ],
+    "writable": [
+     "23XoPQqGw9WMsLoqTu8HMzJLD6RnXsufbKyWPLJywsCT",
+     "5ipEofiHQt2z9EXBZZMbMLcgeD6SFRFGKfQgfo65PKCc",
+     "6nMF76wKdFZaE78eRRDcNikVw1jMKMC4zoj7ibq1N25f",
+     "DbRjFtYNCvPCs7YSk3Cs1feaRfxe2HuCZnpUYEjmR3nQ",
+     "EWXF1h46ahk9i4c768wRCxxWjR7eEDs3PAvFwms95hqf",
+     "GDqetVZ6WdDYJb7edydzqg53CtDWnqQZVSAM8FxeRnvC",
+     "J9WJF4NbJwio4DiKiTGsb7uDnxbruWjEVkj7M6bLhCRa",
+     "9PeQs7co3NtYnkV2CuWCSC6MXxwrMgHBX1E2qNEUj7MY",
+     "BD13Hf2ZThRL3v6wUDcVwhmsK5Eg5qJPR3CRtwkp5o6e",
+     "BidNmgznWp3ERbuemvdPANYmF2ePMHzGvbqjhMpRZYrn",
+     "EXHyQxMSttcvLPwjENnXCPZ8GmLjJYHtNBnAkcFeFKMn",
+     "G5uMMdPTeaafVVEnp3SLNLARarJXjHd5JaKuG3ojMPig"
+    ]
+   }
+  },
+  {
+   "signature": "52F9mVM15NVD5rkbDc5xBQ4ej8osk9ArDSSiYj65XZhrihVC6PAuKxeaTVT5dMWCaxWmLSBjZYx7xPfnfECDPYne",
+   "slot": 466215373,
+   "kind": "route_v2",
+   "transactionBase64": "AckkCM5D6rS8Mk97gTQkuDcEf5ECbCP5IIu3URLl5Ejc2wqUUKJjPwy2YFz2UYrpIrEyMEEH7d0NG4+HK3chZQOAAQAGCtzp2l4Vo4CvPteCRwvHGKhNPe5HsvzhqrMT4W3+SUaOUEdwmePmrUuFK2iMp3M0OUK1SfGWp7Bb2636Z/IA6q6kbGD3ES3GtyEC2ueSfNW/nawZKIEcOWiPcL4L88bDhdzWKiiqpRlfK9Cpm3aUbSgq/FTlE2jw/jbNMXyLJztXAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADBkZv5SEXMv/srbpyw5vnvIzlu8X3EmssQ5s6QAAAAAR51VvyMcBu7nTFbs5oFQf9sbLeo/SOUQKxzaJWvBOPBt324ddloZPZy+FGzut5rBy0he1fWzeROoz1hX7/AKmMlyWPTiSJ8bs9ECkUjg2DC1oTmdr/EIQEjnvY2+n4WbQ/+if11/ZKdMCbHylYed5LCas238ndUUsyGqezjOXoKhA2+dBlc4OQQVKjjdukle46HSbpy+F5myyvkzTq5gsIBQAFAkANAwAFAAkDtyIDAAAAAAAIBgABAA4EBwEBBAIAAQwCAAAAtCdGAAAAAAAHAQEBEQgGAAMAFAQPAQEGHgABAw4UBw8GCQYQDAASFA4DAQsKDwcEAhENExAABii7ZPrMMcSvFLQnRgAAAAAAJNv+MgAAAAAQJwAAAAABAAAAwQAQJwABBwMBAAABCQFHyxb/ZMLmXhtWGxkP868D6jL1XdVje4z6kcPL/HeoigQ8MjE2BwQJESYFADg=",
+   "lookups": [
+    {
+     "table": "5qFZVagrDpXGak2wmqffH4Usb3nJoTf9RfjDaN6JrutM",
+     "readonlyIndexes": [
+      4,
+      9,
+      17,
+      38,
+      5,
+      0,
+      56
+     ],
+     "writableIndexes": [
+      60,
+      50,
+      49,
+      54
+     ]
+    }
+   ],
+   "loadedAddresses": {
+    "readonly": [
+     "So11111111111111111111111111111111111111112",
+     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+     "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+     "5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx",
+     "ADyA8hdefvWN2dbGGWFotbzWxrAvLW83WG6QCVXvJKqw",
+     "GS4CU59F31iL7aR2Q8zVS8DRrcRnXX1yjQ66TqNVQnaR",
+     "Hbgvqrk9UJLQZQSsdxMugyTY8jTR5RBKWgaQNYkEpump"
+    ],
+    "writable": [
+     "CFu8tBTu7ZjMMbNqNd8WSTLKF5TUFpwvSfBd7japsXj",
+     "4bDUzwoGuEtoaU68AoUGMBnpyje1F44aD89Sx9fxXePG",
+     "5HFsEmpLiSrkmqVyKhvktjJ9zGgPxRJwRNUAk3vHLAea",
+     "6rVkF4HSgy1jrnC3HogfRgPHrq4CtLg5f11URpsC4i9D"
+    ]
+   }
+  },
+  {
+   "signature": "3Lv8ePBTdSEJmJoBAds2UpSMiGnKuUw8VF5xxvTwmax2bUgU7jHTHz1LP8PLv2vpct6JQdm8Y55PZuiWwK1ndeSs",
+   "slot": 466215356,
+   "kind": "shared_accounts_route_v2",
+   "transactionBase64": "AXU1d5FZYXpeZQmZ/nvTLS8QPTPyrTCaLBLX1j/+RuHGjsrB1LCnfOxGYFJMlON5dm3b5c0UffMBC+VOV3v/pACAAQAGCh1qIXWzefzciQmTS6pGp1X4zvPMYRKUbT5cm/0YKscNi48B75t4fM5trXbsdFwBzuw6JluEHxgKZRA10BzJ6ofoeinFjcOgbs19U1gmSbHBp9IkL0bw9RJ2ZMYfJ1K3kwQNKBbolL4vWsCjl/r0xhkdD0dSe2c0OB1VRJKksXVXAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1m2OIuCRRgmy7g7uUIXr5ZYYIYp+BY08KJEnea1CcdoyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAAAEedVb8jHAbu50xW7OaBUH/bGy3qP0jlECsc2iVrwTjwbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCpkA2ahN3/jBOH0eIyb1yeFB3lHFl0JVk3cdJEXIaQGTYIBwAFAobeAQAHAAkDCAAAAAAAAAAGBgACABgECQEBBAIAAgwCAAAAvrABAAAAAAAJAQIBEQYGAAMAHgQJAQEILBQAAgoBAxgeCQkVCAoaDxsMDQ4QCgsUCRgJFhkFHRQcEwELERIREhIJGQgXLtGYU5N8/tjpD76wAQAAAAAAFScAAAAAAADECQIAAAACAAAAwxAnAAFoABAnAQIJAwIAAAEJAym/lQcqT78E33F1k+c4vMwhJygVwkcagNn59VWw1IQlAic4BRIAKAIXqbaT1GeP8YCDe1mi1FzhwdNw8EjVZbyst8IvHzxgLRQFOUE/N0ADPT444xQTYVLHKE0SWEdR3twy+BQmPuuQ5DOMnJaRbiLZYMcDIh0gAyMfIQ==",
+   "lookups": [
+    {
+     "table": "3oy9ojnsDzqmMNi87Gs7Hn5v3MPVqnWjG9k8BmzKR7yW",
+     "readonlyIndexes": [
+      18,
+      0,
+      40,
+      2,
+      23
+     ],
+     "writableIndexes": [
+      39,
+      56
+     ]
+    },
+    {
+     "table": "CRVNexafHPcu3zgNMQ2dnFKHff3iGT4n9CtjDb19kfTZ",
+     "readonlyIndexes": [
+      61,
+      62,
+      56
+     ],
+     "writableIndexes": [
+      57,
+      65,
+      63,
+      55,
+      64
+     ]
+    },
+    {
+     "table": "GHRJYRqzM15WzpooLAdR4DX6rfK1MLjj6GRXMdbLDtwG",
+     "readonlyIndexes": [
+      35,
+      31,
+      33
+     ],
+     "writableIndexes": [
+      34,
+      29,
+      32
+     ]
+    }
+   ],
+   "loadedAddresses": {
+    "readonly": [
+     "7iWnBRRhBCiNXXPhqiGzvvBkKrvFSWqqmxRyu9VyYBxE",
+     "D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf",
+     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "jitodontfront1111111111111111JustUseJupiter",
+     "So11111111111111111111111111111111111111112",
+     "Sysvar1nstructions1111111111111111111111111",
+     "ZERor4xhbUycZ6gb9ntrhqscUcZmAbQDjEAtCf4hbZY",
+     "ziVBjUsjvWLdaeNcFT5DuuWxFgUUEExs2jb4qgTqYSy",
+     "2naph4yYn9nF8yddV2aTjwnGuMLbUcgVX8M6B4ckezPE",
+     "ALPHAQmeA7bjrVuccPsYPiCvsi428SNwte66Srvs4pHA",
+     "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD"
+    ],
+    "writable": [
+     "2oL6my4QDDCfpgJZX1bZV1NgbmuNptKdgcE8wJm6efgk",
+     "EpdaePzdqRkMtdZJquVPUWgyoJ5YEEpYALki6dv9VBrt",
+     "3QrF4jzbFn8EWWZi55wonziCoC3ZK2eLmwT2v3EBEsYq",
+     "6wWVbLeHDVHvCCsLprB85jkbU1JhS9VezABT2ZZFJ5BB",
+     "7bFrELm2JUsKfjghdHRXo75ZzQwKWATMLreP5QSnKLcE",
+     "7DyH4hFA9KY2Uf3ZC2fUGP9ATsLqAEq3pUpyJPA2Mjft",
+     "D5trkFE3C7QeyFATEWjEHyKXXXSGpggbP7V9SMWwVBkz",
+     "2AusztjRJ2dcShL8xSUv2FrTqWbLe28UszzHptwrqh2e",
+     "F2KCaXcp7AoQtxTDvNEDCyMyWjSCAMWNzcyN9dsPfPs5",
+     "FnH8uVCgE8iGz4KQSEpQWdpLxzEENB2n2XHYUhUw13wc"
+    ]
+   }
+  }
+ ]
+}

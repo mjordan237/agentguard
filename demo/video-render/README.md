@@ -53,3 +53,44 @@ The output is silent by design -- narration gets added separately, by a
 real human voice, not synthesized. See `../demo-video-script.md` for the
 narration beats and `../record-demo-video.sh` for the live-terminal
 alternative if someone wants to record it instead of using this render.
+
+## v2 (adds the Ethereum approvals scene)
+
+`agentguard-demo-video-v2.mp4` (83 s) is built by `build-v2.mjs` from a fresh
+run of the demo scripts, including `dist/demo/evm-approvals.js`:
+
+```
+for d in legitimate-payment adversarial-payment unapproved-destination-payment over-limit-payment evm-approvals; do
+  node dist/demo/$d.js > run/$d.txt; done
+node build-v2.mjs run out     # needs an ffmpeg with drawtext and libx264
+```
+
+Terminal pages are the captured output, only line-wrapped. Still silent;
+narration is a human voice (see `../demo-video-script.md`).
+
+## v3: animated, built from the real running product
+
+`agentguard-demo-video-v3-animated.mp4` (110 s, 1920x1080, 30 fps, silent, captioned).
+
+1. `dist/demo/live-flow.js` starts the real server with one customer, one named reviewer and a stand-in
+   relayer that returns a fake signature (no network).
+2. `capture.mjs` sends four transactions through the real API, drives the real review page in a browser
+   (types the reviewer token, clicks Approve), retries the held payment, then retries it again to show
+   the single-use refusal. It writes `data.json` and three screenshots.
+3. `render-anim.mjs` renders `anim/index.html` frame by frame (every frame is `render(t)`) and encodes it.
+   Terminal-style values on screen come from `data.json` and `dist/demo/evm-approvals.js`; the only edits
+   are shortening the 78-digit maximum and two example addresses on the Ethereum card, labelled as such.
+
+```
+npm ci && npx tsc -p .
+PLAYWRIGHT_DIR=<dir with node_modules/playwright> CHROME_PATH=<chromium> node demo/video-render/capture.mjs out/capture
+node dist/demo/evm-approvals.js > out/evm-approvals.txt
+FFMPEG=<ffmpeg with libx264> PLAYWRIGHT_DIR=... CHROME_PATH=... \
+  node demo/video-render/render-anim.mjs out/capture out/evm-approvals.txt out/render 30 110
+# then, for players that mishandle full-range colour:
+ffmpeg -framerate 30 -i out/render/frames/%05d.jpg -vf "scale=in_range=pc:out_range=tv,format=yuv420p" \
+  -c:v libx264 -crf 18 -color_range tv -movflags +faststart agentguard-demo-video-v3-animated.mp4
+```
+
+Note: run this from a copy outside iCloud-synced folders (e.g. under `~/Documents`); reading
+`node_modules` there times out and stalls tsc and node.

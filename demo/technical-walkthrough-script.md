@@ -1,133 +1,73 @@
-# AgentGuard -- technical walkthrough script
+# AgentGuard technical walkthrough
 
-Target length: 5-8 minutes, for judges who want to see the real code and
-architecture, not just the pitch narrative. Every command below actually
-runs against this repo -- run `npm install && npm run build` first.
+Use a local checkout and generated demo data. Keep real credentials and customer
+transactions out of recordings. Do not run the mainnet test scripts for this walkthrough.
 
----
+## 1. Build and test
 
-## 1. The pipeline (30 seconds)
-
-```
-Agent constructs a transaction
-  -> POST /evaluate or /gate-and-sign {agentId, policyId, transactionBase64}
-  -> parseAndDecodeTransaction() -- @solana/web3.js parses the tx, resolves
-     any Address Lookup Tables via real RPC (fails closed if unresolvable)
-  -> for each instruction: look up the program in the IDL registry,
-     resolve the instruction name from its discriminator
-  -> decodeVerifiedInstruction() (solana-clear-sign) -- binds the IDL's
-     cryptographic digest to the observed program ID before decoding
-  -> evaluatePolicy() -- program allowlist, destination allowlist,
-     per-transaction and daily spend limits
-  -> ALLOW: recorded, and (on /gate-and-sign) validated against Kora's
-     real fee payer, then signed and submitted through it
-  -> NEEDS_REVIEW: recorded, posted to Slack, routed to a self-hosted
-     approve/deny page -- never reaches a signer
+```sh
+npm ci
+npm run build
+npm run lint
+npm test
 ```
 
-Point out: this is deliberately a two-outcome pipeline, not three.
-`evaluatePolicy` never produces an autonomous `DENY` -- an anomaly
-always routes to a human via `NEEDS_REVIEW`. Nothing here silently
-blocks a transaction without a person seeing it.
+Report the totals printed by this run. Identify skipped tests and their required
+configuration. Do not describe fake-service tests as validation against a live provider.
 
-## 2. The decode itself (1-2 minutes)
+## 2. Inspect decoding and policy evaluation
 
-Open `src/agent-integration/decode.ts` and `demo/policy.ts`. Show the
-registered IDL for `SystemProgram.transfer` -- only `transfer` is
-registered, deliberately, so an injected instruction from the same
-program (`Assign`) has no entry to match and falls to `raw_dump` instead
-of being silently ignored.
+Open `demo/policy.ts`, `src/agent-integration/parse-transaction.ts` and
+`src/policy/evaluate.ts`. Trace the registry lookup, decoded instructions,
+destination checks, and per-transaction and daily limits.
 
-Run the adversarial demo live:
+Run the four commands in `demo/README.md`. Show the decision and reasons for each:
 
-```bash
-node dist/demo/adversarial-payment.js
+1. Transfer to an allowlisted vendor within the limits.
+2. The same payment with an undecoded account-assignment instruction.
+3. Transfer to an unapproved destination.
+4. Transfer exceeding the per-transaction cap.
+
+Do not describe these evaluation-only commands as signing or submitting transactions.
+
+## 3. Demonstrate authenticated human review
+
+```sh
+npm run quickstart
 ```
 
-Point at the real output: a legitimate-looking `transfer` decoded
-cleanly, sitting right next to an `unknown (raw_dump)` instruction with
-the reason "No instruction in the registered IDL matches this data's
-discriminator." Decision: `NEEDS_REVIEW`. This is the core claim of the
-project made concrete -- a program-allowlist check alone would have let
-this straight through, because both instructions touch the same
-allowed program.
+Open the printed review link. Show the sign-in shell before authenticating. Sign in
+with the demo reviewer token, inspect the instructions and reasons, and approve or
+deny the review. Show the action's explicit applied or already-decided result.
+Observe the agent's retry and identify the relayer signature as a stand-in.
 
-## 3. Destination and spend-limit enforcement (1 minute)
+Inspect `src/escalation/review-routes.ts`, `src/escalation/pending-store.ts` and
+`test/review-resolution.test.ts` for authorization and atomic decision attribution.
+Show customer scoping and the reviewed policy fingerprint. Keep reviewer tokens out
+of the recording and avoid displaying terminal output containing credentials.
 
-```bash
-node dist/demo/unapproved-destination-payment.js
-node dist/demo/over-limit-payment.js
-```
+## 4. Inspect signing and recovery boundaries
 
-Both of these decode *cleanly* -- no hidden instruction, nothing a
-discriminator check would catch. They're blocked purely on policy:
-destination not on the approved-vendor list, and amount over the
-per-transaction cap. This is the second half of the pitch: decoding
-correctly isn't the same question as deciding whether something should
-be allowed.
+Trace `/gate-and-sign` in `src/api/server.ts` and the Kora fee-payer checks in
+`src/gateway/kora-gate.ts`. Use `test/kora-gate.test.ts` and
+`test/review-approval-signing.test.ts` to examine fake-relayer behavior and the
+single-use approval checks. Distinguish those tests from real network validation.
 
-## 4. Human escalation, for real (1 minute)
+For Turnkey, inspect `src/turnkey/approver.ts` and `src/turnkey/lifecycle-store.ts`.
+Keep the original signing activity separate from AgentGuard's vote activity.
+Show pending-vote reconciliation, persisted retry state, and retained accounting
+for uncertain external outcomes. Review `test/turnkey.test.ts` for failure cases.
 
-Start the server (`PORT=8787 SLACK_WEBHOOK_URL=... node dist/src/index.js`)
-and walk through `test/escalation.test.ts` conceptually: a real local
-HTTP server standing in for Slack, a real fetch to the Incoming Webhook,
-a real GET to `/review/:id` showing the pending state, a real POST to
-`/review/:id/approve`, and a re-render showing `APPROVED` with the
-buttons gone. Nothing here is asserted against a mock -- it's a real
-HTTP round trip end to end.
+Do not claim production readiness from this walkthrough. Resolve any outstanding
+authorization findings before publishing the branch or enabling signing.
 
-## 5. Gating Kora -- the "sits on top of, doesn't compete with" proof (1-2 minutes)
+## 5. Inspect observability and limitations
 
-Open `src/gateway/kora-gate.ts` and `src/api/server.ts`'s
-`/gate-and-sign` handler. Walk through `test/kora-gate.test.ts`: a real
-local server speaking Kora's actual JSON-RPC wire format (verified
-against `@solana/kora`'s own type declarations, not guessed), asserting
-that an `ALLOW`ed transaction has its fee payer checked against Kora's
-real `getPayerSigner` and, once that matches, gets signed and submitted
-through `signAndSendTransaction` exactly once, and a `NEEDS_REVIEW`
-transaction never reaches Kora at all. Also show the failure modes: a
-transaction built with the wrong fee payer returns
-`400 KORA_FEE_PAYER_MISMATCH` before Kora is ever called for signing; a
-Kora-side error returns `KORA_SIGNING_FAILED`, never a false `ALLOW`; no
-Kora configured returns `KORA_NOT_CONFIGURED` rather than silently
-skipping the sign step.
+Use the authenticated operator queue and review detail to distinguish policy
+assessment, reviewer decision, approval consumption, and signing or vote outcome.
+Inspect the customer-scoped audit API and `src/observability/audit-log.ts`.
 
-Say explicitly: Kora is the Solana Foundation's own relayer, and it
-already does coarse program allowlisting -- it doesn't do
-authenticated-IDL, argument-level decoding. That's the gap AgentGuard
-fills, and this is the same shape it would take in front of Turnkey,
-Privy, Crossmint, or Coinbase's wallet infrastructure.
-
-## 6. Observability (30 seconds)
-
-```
-GET /agents/:agentId/history
-GET /transactions/:id
-```
-
-Every `/evaluate` call is logged, `ALLOW` decisions included -- not just
-the flagged ones. This is what turns AgentGuard from a one-shot pass/fail
-gate into an actual record of what an agent tried to do over time.
-
-## 7. Close honestly
-
-`npm test` -- 95 tests, all exercising real code paths: real
-transactions, a real local HTTP server, a real fake-Slack-webhook
-receiver, a real fake-Kora-RPC server, a real locally-constructed
-Address Lookup Table, and real SDK-serialized Squads `VaultTransaction`
-and `Proposal` accounts (see README's Squads upgrade gate section for
-what that covers). Beyond tests: the decode-and-policy code has been run
-against a real, live Kora relayer and a real signed transaction that
-actually landed and finalized on Solana mainnet (see README's Kora gate
-section for the transaction signature), and the whole service is now
-live on Railway against real mainnet RPC with persistent storage. Point
-to the README's Known Limitations section unprompted: review actions
-need a shared secret (`REVIEW_ACTION_SECRET`), not per-user identity --
-real authentication, but not attributable to an individual; pending
-reviews, evaluation history, daily spend, and rate limits all persist to
-SQLite when configured, but SQLite is local-disk, not a distributed
-datastore, and Node's own `node:sqlite` module is still experimental;
-and the Squads upgrade gate reports a pending buffer's SHA-256 bytecode
-fingerprint for a human to compare against a trusted build, which is
-real evidence but not a cryptographic verified-build proof on its own.
-Stated plainly, not glossed over.
+Close with the README's current limitations: bearer-token reviewer access, local
+SQLite storage, dependency advisories, and the integration checks still outstanding.
+For Squads, distinguish a proposed buffer's bytecode fingerprint from source verification.
+Do not claim that a service is deployed without checking its current deployment.

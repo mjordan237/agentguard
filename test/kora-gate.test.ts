@@ -47,7 +47,7 @@ async function postJson(url: string, body: unknown): Promise<{ status: number; b
  * (method/params/id in, result/error out over POST) -- not a mock of the
  * KoraClient class, an actual server the real client talks to over HTTP.
  */
-function createFakeKoraServer(options: { signerPubkey: string; failNextCall?: boolean }) {
+function createFakeKoraServer(options: { signerPubkey: string; failNextCall?: boolean; failMessage?: string }) {
   let lastRequest: { method: string; params: unknown } | null = null;
   let calls = 0;
 
@@ -76,7 +76,7 @@ function createFakeKoraServer(options: { signerPubkey: string; failNextCall?: bo
 
       if (options.failNextCall) {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ id: rpc.id, jsonrpc: "2.0", error: { code: -32000, message: "signer unavailable" } }));
+        res.end(JSON.stringify({ id: rpc.id, jsonrpc: "2.0", error: { code: -32000, message: options.failMessage ?? "signer unavailable" } }));
         return;
       }
 
@@ -232,5 +232,64 @@ test("gate-and-sign fails closed with KORA_NOT_CONFIGURED when no Kora client is
     assert.equal(result.body.error, "KORA_NOT_CONFIGURED");
   } finally {
     await appHandle.close();
+  }
+});
+
+test("gate-and-sign refuses a transaction that spends the relayer's own funds, even when policy ALLOWs it", async () => {
+  const relayer = Keypair.generate();
+  const { server: fakeKora, getCallCount } = createFakeKoraServer({ signerPubkey: relayer.publicKey.toBase58() });
+  const koraHandle = await listen(fakeKora);
+
+  const approvedVendor = Keypair.generate();
+  const policies = new Map([["demo", buildDemoPolicy([approvedVendor.publicKey.toBase58()])]]);
+  const koraClient = new KoraClient({ rpcUrl: `http://localhost:${koraHandle.port}` });
+  const app = createServer(policies, buildDemoRegistry(), { baseUrl: "http://placeholder", koraGate: { client: koraClient } });
+  const appHandle = await listen(http.createServer(app));
+
+  try {
+    // Fee payer and transfer source are the same key: Kora's signature would authorize both. Unsigned, as Kora adds it.
+    const drain = SystemProgram.transfer({ fromPubkey: relayer.publicKey, toPubkey: approvedVendor.publicKey, lamports: 100_000_000 });
+    const message = new TransactionMessage({ payerKey: relayer.publicKey, recentBlockhash: PublicKey.default.toBase58(), instructions: [drain] }).compileToV0Message();
+    const transactionBase64 = Buffer.from(new VersionedTransaction(message).serialize()).toString("base64");
+
+    const result = await postJson(`http://localhost:${appHandle.port}/gate-and-sign`, { agentId: "agent-1", policyId: "demo", transactionBase64 });
+    assert.equal(result.status, 400, JSON.stringify(result.body));
+    assert.equal(result.body.error, "KORA_FEE_PAYER_IN_INSTRUCTION");
+    assert.equal(getCallCount(), 0, "Kora must never be asked to sign it");
+  } finally {
+    await appHandle.close();
+    await koraHandle.close();
+  }
+});
+
+test("gate-and-sign reports a Kora simulation failure as NOT_SENT and gives the daily budget back", async () => {
+  const feePayerKeypair = Keypair.generate();
+  const { server: fakeKora } = createFakeKoraServer({
+    signerPubkey: feePayerKeypair.publicKey.toBase58(),
+    failNextCall: true,
+    // Kora's reply to an expired blockhash, as seen on devnet.
+    failMessage: "Invalid transaction: Transaction simulation failed: Blockhash not found"
+  });
+  const koraHandle = await listen(fakeKora);
+  const agentWallet = Keypair.generate();
+  const approvedVendor = Keypair.generate();
+  // A daily cap of exactly one payment: if the failed attempt kept its reservation, the next one would go to review.
+  const policies = new Map([["demo", buildDemoPolicy([approvedVendor.publicKey.toBase58()], "100000000", "100000000")]]);
+  const app = createServer(policies, buildDemoRegistry(), { baseUrl: "http://placeholder", koraGate: { client: new KoraClient({ rpcUrl: `http://localhost:${koraHandle.port}` }) } });
+  const appHandle = await listen(http.createServer(app));
+  const baseUrl = `http://localhost:${appHandle.port}`;
+
+  try {
+    const tx = buildTransferTransaction(feePayerKeypair.publicKey, agentWallet, approvedVendor.publicKey, 100_000_000);
+    const result = await postJson(`${baseUrl}/gate-and-sign`, { agentId: "agent-1", policyId: "demo", transactionBase64: tx });
+    assert.equal(result.status, 422, JSON.stringify(result.body));
+    assert.equal(result.body.error, "KORA_SIMULATION_FAILED");
+    assert.equal(result.body.outcome, "NOT_SENT");
+
+    const preview = await postJson(`${baseUrl}/evaluate`, { agentId: "agent-1", policyId: "demo", transactionBase64: tx });
+    assert.equal(preview.body.decision, "ALLOW", "the budget was given back");
+  } finally {
+    await appHandle.close();
+    await koraHandle.close();
   }
 });

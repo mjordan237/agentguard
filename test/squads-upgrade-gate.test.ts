@@ -4,6 +4,7 @@ import { Keypair, PublicKey, type AccountInfo, type AddressLookupTableAccount, t
 import {
   BPF_UPGRADEABLE_LOADER_PROGRAM_ID,
   detectUpgradeInstruction,
+  scanProposalInstructions,
   getBufferBytecodeEvidence,
   resolveFullAccountKeys,
   checkProgramVerificationHistory,
@@ -368,4 +369,31 @@ test("parseKnownCluster accepts only the three known values", () => {
   assert.equal(parseKnownCluster("Mainnet-Beta"), undefined);
   assert.equal(parseKnownCluster(undefined), undefined);
   assert.equal(parseKnownCluster(""), undefined);
+});
+
+test("scanProposalInstructions reports every upgrade, authority changes, closes and ride-along instructions", () => {
+  const key = () => Keypair.generate().publicKey;
+  const [programA, bufferA, programB, bufferB, programData, newAuthority, recipient, systemProgram] = [key(), key(), key(), key(), key(), key(), key(), key()];
+  const filler = [key(), key(), key(), key(), key()];
+  const accountKeys = [BPF_UPGRADEABLE_LOADER_PROGRAM_ID, programData, programA, bufferA, programB, bufferB, newAuthority, recipient, systemProgram, ...filler];
+  const upgrade = (program: number, buffer: number) => ({ programIdIndex: 0, accountIndexes: new Uint8Array([1, program, buffer, 9, 10, 11, 12]), data: new Uint8Array([3, 0, 0, 0]) });
+  const scan = scanProposalInstructions({
+    accountKeys,
+    instructions: [
+      upgrade(2, 3),
+      upgrade(4, 5),
+      { programIdIndex: 0, accountIndexes: new Uint8Array([1, 12, 6]), data: new Uint8Array([4, 0, 0, 0, 1]) },
+      { programIdIndex: 0, accountIndexes: new Uint8Array([5, 7, 12]), data: new Uint8Array([5, 0, 0, 0]) },
+      { programIdIndex: 8, accountIndexes: new Uint8Array([12, 7]), data: new Uint8Array([2, 0, 0, 0]) },
+      { programIdIndex: 0, accountIndexes: new Uint8Array([]), data: new Uint8Array([3]) }
+    ]
+  });
+  assert.deepEqual(scan.upgrades.map((u) => u.targetProgramId), [programA.toBase58(), programB.toBase58()], "the second upgrade is not dropped");
+  assert.deepEqual(scan.controlChanges, [
+    { kind: "SetAuthority", account: programData.toBase58(), counterparty: newAuthority.toBase58() },
+    { kind: "Close", account: bufferB.toBase58(), counterparty: recipient.toBase58() }
+  ]);
+  assert.deepEqual(scan.otherInstructions, [{ programId: systemProgram.toBase58(), count: 1 }]);
+  assert.equal(scan.malformed.length, 1, "a too-short loader instruction is reported, not skipped");
+  assert.equal(detectUpgradeInstruction({ accountKeys, instructions: [upgrade(2, 3), upgrade(4, 5)] })?.targetProgramId, programA.toBase58());
 });

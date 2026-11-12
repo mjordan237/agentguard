@@ -94,28 +94,76 @@ interface CompiledMessageLike {
   instructions: { programIdIndex: number; accountIndexes: Uint8Array; data: Uint8Array }[];
 }
 
+/** Loader instructions that change who controls a program or buffer, by discriminator. */
+const CONTROL_INSTRUCTIONS: Record<number, string> = { 4: "SetAuthority", 5: "Close", 7: "SetAuthorityChecked" };
+
+export interface ControlChange {
+  kind: string;
+  /** The ProgramData or buffer account whose authority changes, or the account being closed. */
+  account: string;
+  /** New authority (SetAuthority*), or the account receiving the lamports (Close). Absent means none named. */
+  counterparty?: string;
+}
+
+export interface ProposalScan {
+  upgrades: DetectedUpgrade[];
+  controlChanges: ControlChange[];
+  /** Every other instruction, by program, so a signer sees what rides along with an upgrade. */
+  otherInstructions: { programId: string; count: number }[];
+  /** Loader instructions too short or missing accounts: shown, never skipped. */
+  malformed: string[];
+}
+
 /**
- * Scans a fully-resolved instruction list for a BPF Upgradeable Loader
- * Upgrade instruction. The caller is responsible for ensuring
- * `message.accountKeys` is the *complete* resolved key list (static
- * keys plus any Address Lookup Table entries) -- this function trusts
- * its input and does not itself know whether resolution succeeded.
+ * Scans every instruction of a fully-resolved message. The caller must pass the complete resolved key list
+ * (static keys plus lookup-table entries); this function trusts its input. All upgrades are returned, not
+ * the first, and authority changes and closes are reported because each hands over or destroys a program.
  */
-export function detectUpgradeInstruction(message: CompiledMessageLike): DetectedUpgrade | undefined {
-  for (const instruction of message.instructions) {
+export function scanProposalInstructions(message: CompiledMessageLike): ProposalScan {
+  const scan: ProposalScan = { upgrades: [], controlChanges: [], otherInstructions: [], malformed: [] };
+  const others = new Map<string, number>();
+  message.instructions.forEach((instruction, index) => {
     const programId = message.accountKeys[instruction.programIdIndex];
-    if (!programId || !programId.equals(BPF_UPGRADEABLE_LOADER_PROGRAM_ID)) continue;
-    if (instruction.data.length < 4) continue;
-    const isUpgrade = UPGRADE_DISCRIMINATOR.every((byte, index) => instruction.data[index] === byte);
-    if (!isUpgrade) continue;
+    if (!programId || !programId.equals(BPF_UPGRADEABLE_LOADER_PROGRAM_ID)) {
+      const key = programId?.toBase58() ?? `unresolved program index ${instruction.programIdIndex}`;
+      others.set(key, (others.get(key) ?? 0) + 1);
+      return;
+    }
+    const account = (position: number) => {
+      const keyIndex = instruction.accountIndexes[position];
+      return keyIndex === undefined ? undefined : message.accountKeys[keyIndex]?.toBase58();
+    };
+    if (instruction.data.length < 4) {
+      scan.malformed.push(`Instruction ${index} on the upgradeable loader has ${instruction.data.length} bytes of data, too short to identify.`);
+      return;
+    }
+    const discriminator = Buffer.from(instruction.data).readUInt32LE(0);
+    if (UPGRADE_DISCRIMINATOR.every((byte, i) => instruction.data[i] === byte)) {
+      const targetProgramId = account(PROGRAM_ACCOUNT_INDEX);
+      const bufferAddress = account(BUFFER_ACCOUNT_INDEX);
+      if (!targetProgramId || !bufferAddress) scan.malformed.push(`Instruction ${index} is an Upgrade but its program or buffer account is missing.`);
+      else scan.upgrades.push({ targetProgramId, bufferAddress });
+      return;
+    }
+    const kind = CONTROL_INSTRUCTIONS[discriminator];
+    if (kind) {
+      const target = account(0);
+      // SetAuthority: [account, current authority, new authority?]. Close: [account, recipient, authority, program?].
+      const counterparty = kind === "Close" ? account(1) : account(2);
+      if (!target) scan.malformed.push(`Instruction ${index} is ${kind} but names no account.`);
+      else scan.controlChanges.push({ kind, account: target, ...(counterparty ? { counterparty } : {}) });
+      return;
+    }
+    const key = `${BPF_UPGRADEABLE_LOADER_PROGRAM_ID.toBase58()} (loader instruction ${discriminator})`;
+    others.set(key, (others.get(key) ?? 0) + 1);
+  });
+  scan.otherInstructions = [...others].map(([programId, count]) => ({ programId, count }));
+  return scan;
+}
 
-    const targetProgram = message.accountKeys[instruction.accountIndexes[PROGRAM_ACCOUNT_INDEX]!];
-    const buffer = message.accountKeys[instruction.accountIndexes[BUFFER_ACCOUNT_INDEX]!];
-    if (!targetProgram || !buffer) continue;
-
-    return { targetProgramId: targetProgram.toBase58(), bufferAddress: buffer.toBase58() };
-  }
-  return undefined;
+/** The first upgrade in the message, kept for callers that handle one. Use scanProposalInstructions for all of them. */
+export function detectUpgradeInstruction(message: CompiledMessageLike): DetectedUpgrade | undefined {
+  return scanProposalInstructions(message).upgrades[0];
 }
 
 export type AltResolutionResult = { resolved: true; accountKeys: PublicKey[] } | { resolved: false; reason: string };
@@ -297,8 +345,22 @@ export function parseTransactionIndex(value: string | number): bigint | undefine
   return undefined;
 }
 
+export interface UpgradeEvidence extends DetectedUpgrade {
+  verificationHistory: VerifiedBuildStatus;
+  bufferBytecodeEvidence: BufferBytecodeEvidence;
+}
+
 export type SquadsUpgradeEvaluation =
-  | { decision: "NOT_AN_UPGRADE"; cluster: KnownSolanaCluster | undefined; reasons: string[] }
+  | { decision: "NOT_AN_UPGRADE"; cluster: KnownSolanaCluster | undefined; otherInstructions?: ProposalScan["otherInstructions"]; reasons: string[] }
+  | {
+      /** No upgrade, but the proposal changes or removes control of a program or buffer. */
+      decision: "CONTROL_CHANGE";
+      cluster: KnownSolanaCluster | undefined;
+      proposalStatus: string;
+      controlChanges: ControlChange[];
+      otherInstructions: ProposalScan["otherInstructions"];
+      reasons: string[];
+    }
   | { decision: "ANALYSIS_INCOMPLETE"; cluster: KnownSolanaCluster | undefined; reasons: string[] }
   | { decision: "NOT_PENDING"; cluster: KnownSolanaCluster | undefined; proposalStatus: string; reasons: string[] }
   | {
@@ -309,6 +371,10 @@ export type SquadsUpgradeEvaluation =
       proposalStatus: string;
       verificationHistory: VerifiedBuildStatus;
       bufferBytecodeEvidence: BufferBytecodeEvidence;
+      /** Every upgrade in the proposal; the top-level fields describe the first. */
+      upgrades: UpgradeEvidence[];
+      controlChanges: ControlChange[];
+      otherInstructions: ProposalScan["otherInstructions"];
       reasons: string[];
     };
 
@@ -384,43 +450,68 @@ export async function evaluateSquadsUpgradeProposal(
     return { decision: "ANALYSIS_INCOMPLETE", cluster, reasons: [resolution.reason] };
   }
 
-  const detected = detectUpgradeInstruction({ accountKeys: resolution.accountKeys, instructions: vaultTransaction.message.instructions });
-  if (!detected) {
-    return { decision: "NOT_AN_UPGRADE", cluster, reasons: ["This proposal does not contain a BPF Upgradeable Loader Upgrade instruction."] };
+  const scan = scanProposalInstructions({ accountKeys: resolution.accountKeys, instructions: vaultTransaction.message.instructions });
+  const alsoReasons = [
+    ...scan.malformed,
+    ...scan.controlChanges.map((change) => change.kind === "Close"
+      ? `The proposal closes ${change.account}${change.counterparty ? `, sending its lamports to ${change.counterparty}` : ""}. A closed program cannot be upgraded or used again.`
+      : `The proposal changes the authority of ${change.account} to ${change.counterparty ?? "none (making it immutable)"} (${change.kind}). Whoever holds that authority controls future upgrades.`),
+    ...(scan.otherInstructions.length > 0
+      ? [`The proposal also runs ${scan.otherInstructions.reduce((n, o) => n + o.count, 0)} other instruction(s) on: ${scan.otherInstructions.map((o) => `${o.programId} (${o.count})`).join(", ")}. Check each before approving.`]
+      : [])
+  ];
+
+  if (scan.upgrades.length === 0) {
+    if (scan.controlChanges.length > 0 || scan.malformed.length > 0) {
+      return { decision: "CONTROL_CHANGE", cluster, proposalStatus: statusKind, controlChanges: scan.controlChanges, otherInstructions: scan.otherInstructions, reasons: alsoReasons };
+    }
+    return { decision: "NOT_AN_UPGRADE", cluster, otherInstructions: scan.otherInstructions, reasons: ["This proposal does not contain a BPF Upgradeable Loader Upgrade instruction."] };
   }
 
-  const [verificationHistory, bufferBytecodeEvidence] = await Promise.all([
-    checkProgramVerificationHistory(detected.targetProgramId, cluster, fetchImpl),
-    getBufferBytecodeEvidence(connection, new PublicKey(detected.bufferAddress))
-  ]);
+  const upgrades: UpgradeEvidence[] = await Promise.all(scan.upgrades.map(async (upgrade) => {
+    const [verificationHistory, bufferBytecodeEvidence] = await Promise.all([
+      checkProgramVerificationHistory(upgrade.targetProgramId, cluster, fetchImpl),
+      getBufferBytecodeEvidence(connection, new PublicKey(upgrade.bufferAddress))
+    ]);
+    return { ...upgrade, verificationHistory, bufferBytecodeEvidence };
+  }));
+
   const reasons: string[] = [];
-  if (verificationHistory.outcome === "VERIFIED") {
-    reasons.push(
-      `Program ${detected.targetProgramId} was last verified against ${verificationHistory.repoUrl ?? "an unrecorded repository"} on ${verificationHistory.lastVerifiedAt ?? "an unrecorded date"}. That reflects the program's history, not the pending buffer -- confirm buffer ${detected.bufferAddress} has itself been verified against an updated commit before approving.`
-    );
-  } else if (verificationHistory.outcome === "UNVERIFIED") {
-    reasons.push(
-      `Program ${detected.targetProgramId} has no verified-build record on file. Approving this upgrade means trusting bytecode with no independent source match on record.`
-    );
-  } else {
-    reasons.push(`Verification status for ${detected.targetProgramId} is unknown: ${verificationHistory.reason}`);
+  if (upgrades.length > 1) reasons.push(`This proposal upgrades ${upgrades.length} programs. Each is listed below; review every one.`);
+  for (const { targetProgramId, bufferAddress, verificationHistory, bufferBytecodeEvidence } of upgrades) {
+    if (verificationHistory.outcome === "VERIFIED") {
+      reasons.push(
+        `Program ${targetProgramId} was last verified against ${verificationHistory.repoUrl ?? "an unrecorded repository"} on ${verificationHistory.lastVerifiedAt ?? "an unrecorded date"}. That reflects the program's history, not the pending buffer -- confirm buffer ${bufferAddress} has itself been verified against an updated commit before approving.`
+      );
+    } else if (verificationHistory.outcome === "UNVERIFIED") {
+      reasons.push(
+        `Program ${targetProgramId} has no verified-build record on file. Approving this upgrade means trusting bytecode with no independent source match on record.`
+      );
+    } else {
+      reasons.push(`Verification status for ${targetProgramId} is unknown: ${verificationHistory.reason}`);
+    }
+    if (bufferBytecodeEvidence.outcome === "HASHED") {
+      reasons.push(
+        `Pending buffer ${bufferAddress} has SHA-256 ${bufferBytecodeEvidence.sha256} over ${bufferBytecodeEvidence.bytesHashed} executable bytes. This is a fingerprint, not verified-build status; compare it with a separately trusted deterministic build before approving.`
+      );
+    } else {
+      reasons.push(`Pending buffer bytecode fingerprint is unavailable: ${bufferBytecodeEvidence.reason}`);
+    }
   }
-  if (bufferBytecodeEvidence.outcome === "HASHED") {
-    reasons.push(
-      `Pending buffer ${detected.bufferAddress} has SHA-256 ${bufferBytecodeEvidence.sha256} over ${bufferBytecodeEvidence.bytesHashed} executable bytes. This is a fingerprint, not verified-build status; compare it with a separately trusted deterministic build before approving.`
-    );
-  } else {
-    reasons.push(`Pending buffer bytecode fingerprint is unavailable: ${bufferBytecodeEvidence.reason}`);
-  }
+  reasons.push(...alsoReasons);
 
+  const first = upgrades[0]!;
   return {
     decision: "NEEDS_REVIEW",
     cluster,
-    targetProgramId: detected.targetProgramId,
-    bufferAddress: detected.bufferAddress,
+    targetProgramId: first.targetProgramId,
+    bufferAddress: first.bufferAddress,
     proposalStatus: statusKind,
-    verificationHistory,
-    bufferBytecodeEvidence,
+    verificationHistory: first.verificationHistory,
+    bufferBytecodeEvidence: first.bufferBytecodeEvidence,
+    upgrades,
+    controlChanges: scan.controlChanges,
+    otherInstructions: scan.otherInstructions,
     reasons
   };
 }

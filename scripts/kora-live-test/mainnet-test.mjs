@@ -1,7 +1,6 @@
-// Real-money mainnet proof of the signing path already proven on devnet.
-// YOU run this yourself, not Claude -- it moves real SOL. Every step
-// prints what it's about to do before doing it. Nothing here will act
-// without your private key being present in a local file only you created.
+// Manual mainnet signing test. This script transfers real SOL.
+// Review the amount, destination and signer configuration before running it.
+// Each step prints its intended action before proceeding.
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
@@ -10,9 +9,8 @@ import { parseAndDecodeTransaction } from "../../dist/src/agent-integration/pars
 import { evaluatePolicy } from "../../dist/src/policy/evaluate.js";
 import { buildDemoRegistry, buildDemoPolicy } from "../../dist/demo/policy.js";
 
-// Where your real wallet's private key lives. Create this file yourself,
-// in your own terminal, outside of any AI session:
-//   echo "YOUR_BASE58_PRIVATE_KEY" > ~/mainnet-agent-key.txt
+// Set AGENT_KEY_PATH to the local file containing the test wallet's private key.
+// Keep that file out of version control and do not paste its contents into logs.
 const AGENT_KEY_PATH = process.env.AGENT_KEY_PATH ?? `${process.env.HOME}/mainnet-agent-key.txt`;
 
 // Deliberately tiny: this is a wiring proof, not a real payment. 0.01 SOL.

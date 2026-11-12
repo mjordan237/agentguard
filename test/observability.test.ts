@@ -83,6 +83,12 @@ test("every /evaluate call is recorded and queryable through the observability l
     assert.equal(filtered.entries.length, 1);
     assert.equal(filtered.entries[0].evaluation.decision, "ALLOW");
 
+    const limited = await (await fetch(`${baseUrl}/agents/agent-1/history?limit=1`)).json();
+    assert.equal(limited.entries.length, 1);
+    assert.equal(limited.summary.total, 2, "the summary still counts everything");
+    const huge = await (await fetch(`${baseUrl}/agents/agent-1/history?limit=99999999`)).json();
+    assert.equal(huge.entries.length, 2, "an oversized limit is capped, not rejected");
+
     const oneEntryResponse = await fetch(`${baseUrl}/transactions/${allowResult.body.logEntryId}`);
     assert.equal(oneEntryResponse.status, 200);
     const oneEntry = await oneEntryResponse.json();
