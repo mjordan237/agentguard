@@ -594,3 +594,67 @@ test("lease: two replicas polling the same re-votable record together submit the
     assert.equal([a.status().standby, b.status().standby].filter(Boolean).length, 1, "one approver advanced, the other stood by");
   } finally { h.cleanup(); }
 });
+
+// ---- Lease fencing: a holder whose lease was taken over mid-pass must not submit a stale second vote. ----
+
+test("lease fence: a takeover advances the token, survives release, and only the uninterrupted holder passes assertLease", () => {
+  const dir = mkdtempSync(join(tmpdir(), "agentguard-fence-"));
+  const path = join(dir, "db.sqlite");
+  try {
+    const store = new TurnkeyLifecycleStore({ persistencePath: path });
+    const t0 = Date.UTC(2026, 10, 12, 12, 0, 0);
+    assert.equal(store.acquireLease("poller", "A", t0, 1_000), true);
+    const fenceA = store.leaseFence("poller");
+    assert.equal(store.assertLease("poller", "A", fenceA), true, "A holds its own fence");
+    assert.equal(store.acquireLease("poller", "A", t0 + 100, 1_000), true, "A renews");
+    assert.equal(store.leaseFence("poller"), fenceA, "a same-owner renewal does not advance the fence");
+    assert.equal(store.acquireLease("poller", "B", t0 + 2_000, 1_000), true, "B takes over A's lapsed lease");
+    assert.ok(store.leaseFence("poller") > fenceA, "a takeover advances the fence");
+    assert.equal(store.assertLease("poller", "A", fenceA), false, "A, superseded, no longer passes its captured fence");
+    store.releaseLease("poller", "B");
+    assert.equal(store.assertLease("poller", "A", fenceA), false, "and still not, even after B releases: the fence does not reset");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("lease fence: a poller paused past the TTL does not submit a second vote after another replica takes over", async () => {
+  // A claims and begins its first check, then pauses inside the awaited policy evaluation while holding the lease.
+  // The TTL lapses; a second replica B (a later clock, as a separate process has) takes over, evaluates and submits
+  // the one approve vote. A then resumes. Without fencing A would author a second, differently-timestamped vote for
+  // the same signing request and overwrite B's record. The fence token makes A stand down: exactly one vote is sent.
+  const dir = mkdtempSync(join(tmpdir(), "agentguard-fence-race-"));
+  const path = join(dir, "db.sqlite");
+  const turnkey = fakeApi();
+  const world = fakeWorld();
+  world.state.decision = "allow"; // the transaction is within limits, so the check leads to an approve vote
+  const wallets = new Map<string, GuardedWallet>([[WALLET, { policyId: "p", agentId: "agent" }]]);
+  let releaseA!: () => void;
+  const aPaused = new Promise<void>((resolve) => { releaseA = resolve; });
+  let firstEvaluate = true;
+  const realEvaluate = world.gate.evaluate.bind(world.gate);
+  world.gate.evaluate = async (...args: Parameters<TurnkeyGate["evaluate"]>) => {
+    if (firstEvaluate) { firstEvaluate = false; await aPaused; } // hold A inside the check while it still owns the lease
+    return realEvaluate(...args);
+  };
+  try {
+    const seed = new TurnkeyLifecycleStore({ persistencePath: path });
+    const txBase64 = Buffer.from("aabbcc", "hex").toString("base64");
+    seed.claim({ organizationId: "org", activityId: "x", voteFingerprint: "fp-x", wallet: WALLET, agentId: "agent", policyId: "p", transactionHash: world.gate.transactionHash(txBase64), policyFingerprint: "rev-1" });
+    turnkey.activities.set("x", activity("x")); // CONSENSUS_NEEDED, fingerprint fp-x, tx aabbcc
+
+    const base = Date.UTC(2026, 10, 12, 12, 0, 0);
+    const ttl = 1_000;
+    const mk = (nowMs: number) => new TurnkeyApprover({ api: turnkey.api, wallets, gate: world.gate, lifecycle: new TurnkeyLifecycleStore({ persistencePath: path }), retry: { baseDelayMs: 0, maxDelayMs: 0 }, leaseTtlMs: ttl, now: () => nowMs, random: () => 0.5 });
+    const a = mk(base);
+    const b = mk(base + 5_000); // a later clock, past the TTL, as a second process would have
+
+    const aPass = a.poll();                                   // A acquires the lease and pauses inside evaluate
+    for (let i = 0; i < 40; i++) await Promise.resolve();     // let A reach the paused check
+    await b.poll();                                           // B takes over (A's lease lapsed) and submits the vote
+    releaseA();                                               // resume A, now superseded
+    await aPass;
+
+    assert.equal(turnkey.voteRequests.length, 1, "only one approve request is sent for the one signing request");
+    assert.equal(turnkey.votes.length, 1, "and so exactly one vote activity exists, not a stale second one");
+    assert.equal(seed.get("org", "x")!.voteSubmissions, 1, "the record is not overwritten back by the superseded poller");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

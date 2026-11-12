@@ -131,14 +131,17 @@ const INDEXES = `
 /** The Turnkey activity lifecycle, in SQLite when a path is given and in memory otherwise, like the other stores. */
 export class TurnkeyLifecycleStore {
   private readonly records = new Map<string, ActivityRecord>();
-  private readonly leases = new Map<string, { owner: string; expiresAtMs: number }>();
+  private readonly leases = new Map<string, { owner: string; expiresAtMs: number; fence: number }>();
   private readonly database?: SqliteDatabase;
 
   constructor(options: { persistencePath?: string } = {}) {
     if (!options.persistencePath) return;
     this.database = openSqliteDatabase(options.persistencePath);
     this.database.exec(`CREATE TABLE IF NOT EXISTS turnkey_activities (${TABLE_COLUMNS}) STRICT;${INDEXES}`);
-    this.database.exec("CREATE TABLE IF NOT EXISTS poller_lease (name TEXT PRIMARY KEY, owner TEXT NOT NULL, expires_at_ms INTEGER NOT NULL) STRICT;");
+    this.database.exec("CREATE TABLE IF NOT EXISTS poller_lease (name TEXT PRIMARY KEY, owner TEXT NOT NULL, expires_at_ms INTEGER NOT NULL, fence INTEGER NOT NULL DEFAULT 0) STRICT;");
+    if (!new Set((this.database.prepare("PRAGMA table_info(poller_lease)").all() as Array<{ name: string }>).map((c) => c.name)).has("fence")) {
+      this.database.exec("ALTER TABLE poller_lease ADD COLUMN fence INTEGER NOT NULL DEFAULT 0;");
+    }
     const columns = new Set((this.database.prepare("PRAGMA table_info(turnkey_activities)").all() as Array<{ name: string }>).map((c) => c.name));
     for (const [name, type] of ADDED_COLUMNS) if (!columns.has(name)) this.database.exec(`ALTER TABLE turnkey_activities ADD COLUMN ${name} ${type};`);
     this.relaxTransactionHash(this.database);
@@ -180,15 +183,19 @@ export class TurnkeyLifecycleStore {
    * transaction, so two processes cannot both acquire against the same earlier state. The holder renews by acquiring
    * again (its own owner always succeeds); a holder that stops renewing lets the lease lapse after ttlMs and another
    * process takes it over. In memory there is only one process, so an owner that is free to the caller is granted.
+   *
+   * A monotonic fence token advances every time a DIFFERENT owner takes the lease over (never on a same-owner renewal)
+   * and survives a release, so a holder can later tell whether anyone took over while it was paused: see assertLease.
    */
   acquireLease(name: string, owner: string, nowMs: number, ttlMs: number): boolean {
     if (this.database) {
       this.database.exec("BEGIN IMMEDIATE;");
       try {
-        const row = this.database.prepare("SELECT owner, expires_at_ms FROM poller_lease WHERE name = ?").get(name) as { owner: string; expires_at_ms: number | bigint } | undefined;
+        const row = this.database.prepare("SELECT owner, expires_at_ms, fence FROM poller_lease WHERE name = ?").get(name) as { owner: string; expires_at_ms: number | bigint; fence: number | bigint } | undefined;
         const free = !row || row.owner === owner || Number(row.expires_at_ms) <= nowMs;
         if (free) {
-          this.database.prepare("INSERT INTO poller_lease (name, owner, expires_at_ms) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET owner = excluded.owner, expires_at_ms = excluded.expires_at_ms").run(name, owner, nowMs + ttlMs);
+          const fence = !row ? 1 : row.owner === owner ? Number(row.fence) : Number(row.fence) + 1;
+          this.database.prepare("INSERT INTO poller_lease (name, owner, expires_at_ms, fence) VALUES (?, ?, ?, ?) ON CONFLICT (name) DO UPDATE SET owner = excluded.owner, expires_at_ms = excluded.expires_at_ms, fence = excluded.fence").run(name, owner, nowMs + ttlMs, fence);
         }
         this.database.exec("COMMIT;");
         return free;
@@ -199,17 +206,44 @@ export class TurnkeyLifecycleStore {
     }
     const held = this.leases.get(name);
     const free = !held || held.owner === owner || held.expiresAtMs <= nowMs;
-    if (free) this.leases.set(name, { owner, expiresAtMs: nowMs + ttlMs });
+    if (free) this.leases.set(name, { owner, expiresAtMs: nowMs + ttlMs, fence: !held ? 1 : held.owner === owner ? held.fence : held.fence + 1 });
     return free;
   }
 
-  /** Gives up a lease so a standby poller can take over at once, rather than waiting for it to lapse. */
+  /** The current fence token of a lease, or 0 if it has never been held. Capture it right after a successful acquire. */
+  leaseFence(name: string): number {
+    if (this.database) {
+      const row = this.database.prepare("SELECT fence FROM poller_lease WHERE name = ?").get(name) as { fence: number | bigint } | undefined;
+      return row ? Number(row.fence) : 0;
+    }
+    return this.leases.get(name)?.fence ?? 0;
+  }
+
+  /**
+   * True only if `owner` still holds `name` at the exact `fence` it captured when it acquired. If another owner took
+   * the lease over in the meantime the fence has advanced (and does not reset on release), so this returns false even
+   * if that other owner has since released it. This lets a holder that resumes after a pause detect that it was
+   * superseded before it does anything privileged, without wrongly standing down when its own lease merely lapsed with
+   * no one else taking over (the fence is unchanged then).
+   */
+  assertLease(name: string, owner: string, fence: number): boolean {
+    if (this.database) {
+      const row = this.database.prepare("SELECT owner, fence FROM poller_lease WHERE name = ?").get(name) as { owner: string; fence: number | bigint } | undefined;
+      return !!row && row.owner === owner && Number(row.fence) === fence;
+    }
+    const held = this.leases.get(name);
+    return !!held && held.owner === owner && held.fence === fence;
+  }
+
+  /** Gives up a lease so a standby poller can take over at once, rather than waiting for it to lapse. The fence token
+   * is kept (the row is only marked expired), so a superseded holder that resumes still sees the advance. */
   releaseLease(name: string, owner: string): void {
     if (this.database) {
-      this.database.prepare("DELETE FROM poller_lease WHERE name = ? AND owner = ?").run(name, owner);
+      this.database.prepare("UPDATE poller_lease SET expires_at_ms = 0 WHERE name = ? AND owner = ?").run(name, owner);
       return;
     }
-    if (this.leases.get(name)?.owner === owner) this.leases.delete(name);
+    const held = this.leases.get(name);
+    if (held?.owner === owner) held.expiresAtMs = 0;
   }
 
   private key(organizationId: string, activityId: string) { return `${organizationId}\u0000${activityId}`; }

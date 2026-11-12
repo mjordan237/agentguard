@@ -131,6 +131,8 @@ export class TurnkeyApprover {
   /** This process's identity for the poller lease: one per approver instance, so two instances never share a hold. */
   private readonly owner = randomUUID();
   private readonly leaseTtlMs: number;
+  /** The fence token this process captured when it acquired the lease for the current poll pass (see poll). */
+  private leaseFence?: number;
 
   constructor(private readonly config: TurnkeyApproverConfig) {
     this.lifecycle = config.lifecycle ?? new TurnkeyLifecycleStore();
@@ -183,6 +185,9 @@ export class TurnkeyApprover {
         held = this.lifecycle.acquireLease(LEASE_NAME, this.owner, this.nowMs(), this.leaseTtlMs);
         if (!held) { this.diagnostics.standby = true; return; }
         this.diagnostics.standby = false;
+        // Capture the fence token for this pass, so a privileged submission can check no other owner took over while
+        // this pass was paused in an awaited call past the TTL (see approveVote and assertLease).
+        this.leaseFence = this.lifecycle.leaseFence(LEASE_NAME);
         const handled = new Set<string>();
         await this.reconcile(handled);
         this.diagnostics.lastPollAt = new Date().toISOString();
@@ -482,6 +487,13 @@ export class TurnkeyApprover {
       return this.watchSigning(record, wallet, "VOTE_UNKNOWN", detail);
     }
     if (timestampMs === undefined) {
+      // Fencing: only the process that currently holds the poller lease may author a NEW distinct vote. A process
+      // whose lease was taken over mid-pass (for example paused in an awaited check past the TTL while another replica
+      // took over, even if that replica has since released) must not submit a second, differently-timestamped vote for
+      // the same signing request, nor overwrite the active owner's record. The fence token detects the takeover; it is
+      // not merely an expiry check, so a solo poller whose own lease simply lapsed with no takeover still proceeds. A
+      // replay (an already-recorded timestamp, handled above) stays safe without this, being idempotent by timestamp.
+      if (this.leaseFence !== undefined && !this.lifecycle.assertLease(LEASE_NAME, this.owner, this.leaseFence)) return;
       if (made >= this.retry.maxVoteSubmissions) {
         // No more new votes. The signing activity is still read (with backoff) until Turnkey finishes it or the horizon ends.
         if (Object.keys(before).length) this.lifecycle.update(record.organizationId, record.activityId, before);
