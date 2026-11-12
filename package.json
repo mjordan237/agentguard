@@ -1,7 +1,7 @@
 {
   "name": "agentguard",
   "version": "0.1.0",
-  "description": "Security layer for autonomous AI agents transacting onchain, built on solana-clear-sign's authenticated-IDL decoder. Started on Solana; ClearSign is its policy-and-decode engine.",
+  "description": "Transaction policy checks and human approval workflows for Solana and EVM agents.",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
