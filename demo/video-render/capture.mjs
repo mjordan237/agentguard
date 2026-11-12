@@ -26,28 +26,32 @@ const call = async (pathname, body, method = "POST") => {
 const send = (name, extra = {}) => call("/gate-and-sign", { agentId: info.agentId, policyId: info.policyId, transactionBase64: info.transactions[name], ...extra });
 
 const data = { addresses: info.addresses, results: {} };
+let browser;
 try {
   for (const name of ["legitimate", "hidden", "stranger", "overLimit"]) data.results[name] = await send(name);
 
   const review = data.results.hidden.body;
-  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH });
+  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH });
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, deviceScaleFactor: 2 });
   await page.goto(review.reviewUrl);
+  await page.locator("#token").fill(info.reviewerToken);
+  await page.locator('#login button[type="submit"]').click();
+  await page.locator("#detail .actions").waitFor();
   await page.screenshot({ path: `${out}/review-1-pending.png`, fullPage: true });
-  const box = await page.locator('form[action$="/approve"] button').boundingBox();
+  const approve = page.getByRole("button", { name: "Approve", exact: true });
+  const box = await approve.boundingBox();
   data.approveXY = [(box.x + box.width / 2) * (700 / 1100), (box.y + box.height / 2) * (700 / 1100)];
-  await page.locator('form[action$="/approve"] input[name="token"]').fill(info.reviewerToken);
+  await approve.click();
   await page.screenshot({ path: `${out}/review-2-token.png`, fullPage: true });
-  await page.locator('form[action$="/approve"] button').click();
-  await page.waitForLoadState("load");
+  await page.getByRole("button", { name: "Confirm approval", exact: true }).click();
+  await page.getByText("You approved this review.", { exact: true }).waitFor();
   await page.screenshot({ path: `${out}/review-3-approved.png`, fullPage: true });
   data.approvedPageText = (await page.locator("body").innerText()).slice(0, 600);
-  await browser.close();
 
   data.results.hiddenAfterApproval = await send("hidden", { reviewId: review.reviewId });
   data.results.hiddenReused = await send("hidden", { reviewId: review.reviewId });
 } finally {
-  server.kill();
+  try { await browser?.close(); } finally { server.kill(); }
 }
 writeFileSync(`${out}/data.json`, JSON.stringify(data, null, 2));
 console.log(JSON.stringify(Object.fromEntries(Object.entries(data.results).map(([k, v]) => [k, [v.status, v.body?.decision ?? v.body?.code ?? Object.keys(v.body ?? {})]])), null, 1));

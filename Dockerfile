@@ -1,4 +1,4 @@
-FROM node:22.13.0-bookworm-slim AS build
+FROM node:22.19.0-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -8,7 +8,7 @@ RUN npm ci
 COPY . .
 RUN npm run build && npm prune --omit=dev
 
-FROM node:22.13.0-bookworm-slim
+FROM node:22.19.0-bookworm-slim
 
 ENV NODE_ENV=production
 ENV PORT=8787

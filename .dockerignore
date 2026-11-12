@@ -6,4 +6,15 @@ agentguard.sqlite
 agentguard.sqlite-shm
 agentguard.sqlite-wal
 .env
+**/.env
+**/.env.*
+REVIEW_HANDOFF.md
+demo/video-render
+**/*-wallet.json
+**/*-key.json
+**/*.sqlite
+**/*.sqlite-shm
+**/*.sqlite-wal
+**/*.sqlite-journal
+backups
 npm-debug.log

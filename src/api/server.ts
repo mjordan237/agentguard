@@ -38,6 +38,12 @@ const HISTORY_DEFAULT_LIMIT = 100;
 const DAILY_LIMIT_RACE_REASON = "The transaction would exceed the policy's daily limit once concurrent spending is counted, so it needs review.";
 const HISTORY_MAX_LIMIT = 1000;
 
+class SigningAuthorizationError extends Error {
+  constructor(readonly status: 403 | 409, readonly code: string) {
+    super(status === 403 ? "The customer is no longer authorized. Submit a new request with an active customer." : "The policy changed during this request. Submit a new request under the current policy.");
+  }
+}
+
 const evaluateRequestSchema = z.object({
   agentId: z.string(),
   policyId: z.string(),
@@ -304,6 +310,17 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
     next();
   };
   const customerOf = (res: Response): Customer | undefined => res.locals.customer as Customer | undefined;
+  // Authentication at request entry cannot authorize a later signature after an awaited lookup or simulation.
+  const authorizeSigning = (customer: Customer | undefined, policy: Policy) => {
+    if (customer ? !customers.getActive(customer.id) : config.requireApiKeys || customers.hasAnyCustomers()) {
+      throw new SigningAuthorizationError(403, "CUSTOMER_UNAUTHORIZED");
+    }
+    const current = customer ? [customers.getPolicy(customer.id, policy.policyId)].filter((entry): entry is Policy => entry !== undefined)
+      : [...policies.values()].filter((entry) => entry.policyId === policy.policyId);
+    if (current.length === 0 || !current.every((entry) => policyFingerprint(entry) === policyFingerprint(policy))) {
+      throw new SigningAuthorizationError(409, "POLICY_CHANGED");
+    }
+  };
   const reviewActionRateLimited = rateLimited("review-action");
 
   // Review actions use an independent key namespace on the same limiter so
@@ -401,6 +418,8 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
         ? { ...evaluation, decision: "NEEDS_REVIEW", reasons: check.reasons, simulation: { netChange: check.netChange } }
         : { ...evaluation, simulation: { netChange: check.netChange } };
     }
+    // Turnkey uses an explicit wallet assignment and reauthorizes at its own submission boundary.
+    if (reservationId === undefined) authorizeSigning(customer, policy);
     let reserved: SpendReservation | undefined;
     if (evaluation.decision === "ALLOW" && reserveSpend(parsed.data.reserve === true)) {
       const attempt = reserveAutoAllow(policy, evaluation, {}, reservationId);
@@ -494,6 +513,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
 
   /** Shared tail of the EVM endpoints: log, queue a review if needed, otherwise optionally reserve daily budget. */
   function respondEvm(res: Response, chainId: number | undefined, customer: Customer | undefined, agentId: string, policy: Policy, evaluation: PolicyEvaluation, canonical: string, reserve: boolean) {
+    authorizeSigning(customer, policy);
     const chain = chainId === undefined ? "evm" : `evm:${chainId}`;
     const messageHash = createHash("sha256").update(canonical).digest("hex");
     // Decide the final evaluation first (an auto-ALLOW that cannot reserve within the daily limit becomes a review),
@@ -561,6 +581,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
       nonce: BigInt(t.nonce), gasLimit: BigInt(t.gasLimit), maxFeePerGas: BigInt(t.maxFeePerGas), maxPriorityFeePerGas: BigInt(t.maxPriorityFeePerGas)
     };
     const evaluation0 = await applyCodeCheck(evaluateEvmSignable(tx, policy, dailySpend.spentToday(policy.policyId)), decodeEvmTransaction(tx), policy, tx.chainId, config.evmCodeLookup);
+    authorizeSigning(customer, policy);
     // The review is bound to every field that is signed, gas included, so an approval cannot be reused for a different transaction.
     const canonical = JSON.stringify([t.chainId, t.from.toLowerCase(), t.to?.toLowerCase() ?? null, t.value ?? "0", (t.data ?? "0x").toLowerCase(), t.nonce, t.gasLimit, t.maxFeePerGas, t.maxPriorityFeePerGas]);
     const messageHash = createHash("sha256").update(canonical).digest("hex");
@@ -599,6 +620,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
         // The signed bytes never leave the server. Re-read the code behind the destinations with no cache right
         // before sending, so a swap of what sits at the address after the first check is caught.
         const late = config.evmCodeLookup ? await codeCheckReasons(decodeEvmTransaction(tx), policy, tx.chainId, config.evmCodeLookup, true) : [];
+        authorizeSigning(customer, policy);
         if (late.length > 0) {
           if (spentApproval) reviewStore.releaseConsumed(spentApproval);
           dailySpend.release(reserved);
@@ -618,12 +640,17 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
         auditAfterSigning(customer?.id, "signed", { ...evmContext(), transactionHash, broadcast: true });
         return res.status(200).type("application/json").send(toJsonSafe({ ...evaluation, logEntryId: logEntry.id, transactionHash, signer: signer.address, ...(spentApproval ? { signedViaReview: spentApproval } : {}) }));
       }
+      authorizeSigning(customer, policy);
       auditAfterSigning(customer?.id, "signed", { ...evmContext(), broadcast: false, signedTransactionSha256: createHash("sha256").update(String(signedTransaction)).digest("hex") });
       return res.status(200).type("application/json").send(toJsonSafe({ ...evaluation, logEntryId: logEntry.id, signedTransaction, signer: signer.address, ...(spentApproval ? { signedViaReview: spentApproval } : {}) }));
     } catch (error) {
       // Nothing was signed, so the approval and the budget both go back.
       if (spentApproval) reviewStore.releaseConsumed(spentApproval);
       dailySpend.release(reserved);
+      if (error instanceof SigningAuthorizationError) {
+        auditAfterSigning(customer?.id, "signing_failed", { ...evmContext(), outcome: "NOT_SENT", code: error.code });
+        return res.status(error.status).json({ error: error.code, message: error.message });
+      }
       console.error("EVM signing failed:", error);
       auditAfterSigning(customer?.id, "signing_failed", { ...evmContext(), outcome: "NOT_SENT", code: "EVM_SIGNING_FAILED" });
       return res.status(500).json({ error: "EVM_SIGNING_FAILED", message: "The signer could not sign this transaction." });
@@ -663,13 +690,18 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
     }
 
     try {
-      const signed = await signThroughKora(config.koraGate, transactionBase64);
+      const signed = await signThroughKora(config.koraGate, transactionBase64, () => authorizeSigning(customerOf(res), policy));
       auditAfterSigning(customerOf(res)?.id, "signed", { ...solanaContext(), signature: (signed as { signature?: unknown }).signature });
       return res.status(200).type("application/json").send(toJsonSafe({ ...evaluation, logEntryId: logEntry.id, kora: signed, ...(spentApproval ? { signedViaReview: spentApproval } : {}) }));
     } catch (error) {
       // The approval is always given back: the same message makes the same transaction, which the chain
       // accepts once, so a retry cannot double-execute.
       if (spentApproval) reviewStore.releaseConsumed(spentApproval);
+      if (error instanceof SigningAuthorizationError) {
+        giveBackBudget();
+        auditAfterSigning(customerOf(res)?.id, "signing_failed", { ...solanaContext(), outcome: "NOT_SENT", code: error.code });
+        return res.status(error.status).json({ error: error.code, message: error.message });
+      }
       if (error instanceof KoraFeePayerMismatchError) {
         // Checked before anything is sent, so this is a certain failure and the budget goes back.
         giveBackBudget();
@@ -683,17 +715,17 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
       }
       if (isSimulationRejection(error)) {
         giveBackBudget();
-        auditAfterSigning(customerOf(res)?.id, "signing_failed", { ...solanaContext(), outcome: "NOT_SENT", code: "KORA_SIMULATION_FAILED", message: (error as Error).message });
-        return res.status(422).json({ error: "KORA_SIMULATION_FAILED", outcome: "NOT_SENT", message: `${(error as Error).message}. Nothing was sent and the budget was given back.` });
+        auditAfterSigning(customerOf(res)?.id, "signing_failed", { ...solanaContext(), outcome: "NOT_SENT", code: "KORA_SIMULATION_FAILED" });
+        return res.status(422).json({ error: "KORA_SIMULATION_FAILED", outcome: "NOT_SENT", message: "The transaction failed simulation. Nothing was sent and the budget was given back." });
       }
       // Any other failure (a timeout, a dropped connection, an error reply) may have come after the
       // transaction was broadcast. The budget stays reserved: over-counting is safe, handing it back
       // when the money actually moved would let the daily cap be exceeded.
-      auditAfterSigning(customerOf(res)?.id, "signing_failed", { ...solanaContext(), outcome: "UNKNOWN", code: "KORA_SIGNING_FAILED", message: (error as Error).message });
+      auditAfterSigning(customerOf(res)?.id, "signing_failed", { ...solanaContext(), outcome: "UNKNOWN", code: "KORA_SIGNING_FAILED" });
       return res.status(502).json({
         error: "KORA_SIGNING_FAILED",
         outcome: "UNKNOWN",
-        message: `${(error as Error).message}. The transaction may or may not have been sent; check its status before resubmitting. Its budget stays reserved until the day ends.`
+        message: "The signing service did not confirm the outcome. The transaction may or may not have been sent; check its status before resubmitting. Its budget stays reserved until the day ends."
       });
     }
   }));
@@ -733,7 +765,7 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
       );
       return res.status(200).type("application/json").send(toJsonSafe(evaluation));
     } catch (error) {
-      return res.status(502).json({ error: "SQUADS_READ_FAILED", message: (error as Error).message });
+      return res.status(502).json({ error: "SQUADS_READ_FAILED", message: "The proposal could not be read from the configured RPC service." });
     }
   }));
 
@@ -876,6 +908,9 @@ export function createServer(policies: Map<string, Policy>, registry: IdlRegistr
   }
 
   app.use((error: unknown, _req: express.Request, res: Response, next: express.NextFunction) => {
+    if (error instanceof SigningAuthorizationError && !res.headersSent) {
+      return res.status(error.status).json({ error: error.code, message: error.message });
+    }
     // The body parser reports a client mistake (malformed JSON, body too large) as an error with a 4xx status.
     const status = (error as { status?: unknown; statusCode?: unknown })?.status ?? (error as { statusCode?: unknown })?.statusCode;
     if (typeof status === "number" && status >= 400 && status < 500 && !res.headersSent) {

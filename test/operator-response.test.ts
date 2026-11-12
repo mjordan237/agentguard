@@ -210,3 +210,21 @@ test("operator: a queue filter change mid-request drops the old filter's late re
   assert.match(h.$("list").textContent, /agent-fresh/, "the new filter's results are shown");
   assert.doesNotMatch(h.$("list").textContent, /agent-stale/, "the pre-change response was dropped");
 });
+
+test("operator: an old decision cannot block or unlock a newer review's decision", async () => {
+  const h = harness("/review/A");
+  h.signIn("agr_token"); h.settle(0, 200, detailBody("A")); await tick();
+  findButton(h.$("detail"), "Approve")!.fire("click");
+  findButton(h.$("detail"), "Confirm approval")!.fire("click");
+  const aPost = h.pending.findIndex((p) => p.method === "POST");
+  h.navigate("/review/B");
+  const bGet = h.pending.findIndex((p) => p.url === "/operator/api/reviews/B");
+  h.settle(bGet, 200, detailBody("B")); await tick();
+  findButton(h.$("detail"), "Approve")!.fire("click");
+  const confirmB = findButton(h.$("detail"), "Confirm approval")!;
+  confirmB.fire("click");
+  assert.equal(h.pending.filter((p) => p.method === "POST").length, 2, "A must not block a decision on B");
+  h.settle(aPost, 200, { id: "A", outcome: "applied", status: "APPROVED" }); await tick();
+  confirmB.fire("click");
+  assert.equal(h.pending.filter((p) => p.method === "POST").length, 2, "A's completion must not unlock B's pending decision");
+});

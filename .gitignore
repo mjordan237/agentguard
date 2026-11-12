@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
+!.env.sample
 *.log
 .DS_Store
 
@@ -14,3 +17,10 @@ scripts/kora-live-test/*-key.json
 agentguard.sqlite
 agentguard.sqlite-shm
 agentguard.sqlite-wal
+
+# Configured state files and backup copies contain customer data and credential hashes.
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+backups/

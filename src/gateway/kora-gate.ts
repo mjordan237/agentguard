@@ -55,7 +55,7 @@ export function isSimulationRejection(error: unknown): boolean {
  * before it was ever evaluated); Kora's signature is the last one needed,
  * so there's no reason to withhold submission once it's added.
  */
-export async function signThroughKora(config: KoraGateConfig, transactionBase64: string): Promise<SignAndSendTransactionResponse> {
+export async function signThroughKora(config: KoraGateConfig, transactionBase64: string, authorizeSubmission?: () => void): Promise<SignAndSendTransactionResponse> {
   const { signer_address } = await config.client.getPayerSigner();
 
   const tx = VersionedTransaction.deserialize(Buffer.from(transactionBase64, "base64"));
@@ -70,5 +70,6 @@ export async function signThroughKora(config: KoraGateConfig, transactionBase64:
     }
   });
 
+  authorizeSubmission?.();
   return config.client.signAndSendTransaction({ transaction: transactionBase64 });
 }

@@ -53,9 +53,9 @@ export interface TurnkeyApproverConfig {
   lifecycle?: TurnkeyLifecycleStore;
   pollMs?: number;
   /**
-   * How long a poller lease is held before it must be renewed. Only the lease holder advances the lifecycle, so this
-   * bounds how long a standby waits before taking over from a holder that has stopped. Defaults to several poll
-   * intervals so an active holder never loses its own lease between polls.
+   * How long a standby waits before it may take over a lease. A pass can outlive this TTL; the fence detects tested
+   * takeover cases before a new vote, but cannot recall an external request already in flight. Deploy one active
+   * approver until multi-process state transitions and failover semantics are fully validated.
    */
   leaseTtlMs?: number;
   retry?: Partial<TurnkeyRetryPolicy>;
@@ -175,11 +175,9 @@ export class TurnkeyApprover {
    */
   poll(): Promise<void> {
     this.polling ??= (async () => {
-      // Only the lease holder advances the lifecycle this pass. A process that does not hold it stands by, so two
-      // replicas sharing one database never both read-and-submit a vote for the same signing request (see
-      // acquireLease). The lease is taken for this pass and given back at its end, so the next poll -- here or in
-      // another replica -- takes it freely; the TTL only bounds how long a standby waits for a holder that crashed
-      // mid-pass without giving it back.
+      // The lease gates entry to this pass; the fence also checks for takeover before a new distinct approve vote.
+      // It is released at the end. This does not fence an external call already in flight or make every state write
+      // atomic with ownership, so it is not a guarantee of exactly-once submission across replicas.
       let held = false;
       try {
         held = this.lifecycle.acquireLease(LEASE_NAME, this.owner, this.nowMs(), this.leaseTtlMs);
@@ -477,13 +475,20 @@ export class TurnkeyApprover {
     const made = this.submissionsMade(record);
     let timestampMs = this.replayable(record, "APPROVE");
     const first = timestampMs === undefined && made === 0;
-    if (this.config.gate.policyFingerprint(wallet) === undefined) {
+    const currentFingerprint = this.config.gate.policyFingerprint(wallet);
+    if (currentFingerprint === undefined) {
       // No authorized policy for this wallet (its customer is missing or revoked, or the policy is gone). Record the
       // reservation if one was passed, then fail closed without submitting an approve vote and without refunding.
       if (Object.keys(before).length) this.lifecycle.update(record.organizationId, record.activityId, before);
       const detail = "TENANT_UNAUTHORIZED: the wallet's customer is missing or no longer active, or its policy is gone; no approve vote is submitted. ACCOUNTING_RETAINED.";
       // No approve request has gone out yet: reject the request. One may have: stop submitting and only watch.
       if (first) return await this.reject(record, activity, wallet, detail, "REJECTED", "TENANT_UNAUTHORIZED");
+      return this.watchSigning(record, wallet, "VOTE_UNKNOWN", detail);
+    }
+    if (currentFingerprint !== record.policyFingerprint) {
+      if (Object.keys(before).length) this.lifecycle.update(record.organizationId, record.activityId, before);
+      const detail = "POLICY_CHANGED: the policy changed during evaluation; no approve vote is submitted. ACCOUNTING_RETAINED.";
+      if (first) return await this.reject(record, activity, wallet, detail, "REJECTED", "POLICY_CHANGED");
       return this.watchSigning(record, wallet, "VOTE_UNKNOWN", detail);
     }
     if (timestampMs === undefined) {

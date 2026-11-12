@@ -12,6 +12,7 @@ import { parseTrustProxy, trustProxyStartupLine } from "./api/trust-proxy.js";
 import { productionConfigProblems, reviewSecretProblem } from "./api/production-config.js";
 import { rpcSwapSimulator } from "./gateway/swap-simulation.js";
 import { turnkeyConfigFromEnv } from "./turnkey/config.js";
+import { endpointLabel } from "./network/endpoint-label.js";
 
 // System transfer, SPL Token / Token-2022 TransferChecked, and ComputeBudget. Anything else is unverifiable
 // and goes to review.
@@ -42,7 +43,7 @@ const resolveLookupTable: LookupTableResolver = withLookupTimeout(async (address
     const result = await connection.getAddressLookupTable(address);
     return result.value;
   } catch (error) {
-    console.error(`Failed to resolve address lookup table ${address.toBase58()}:`, error);
+    console.error(`Failed to resolve address lookup table ${address.toBase58()} via ${endpointLabel(rpcUrl)}.`);
     return null;
   }
 });
@@ -148,7 +149,7 @@ async function start(): Promise<void> {
       }
     }
   } catch (error) {
-    console.error(`!!! RPC NETWORK DETECTION FAILED !!! Could not read genesis hash from ${rpcUrl}: ${(error as Error).message}`);
+    console.error(`!!! RPC NETWORK DETECTION FAILED !!! Could not read genesis hash from ${endpointLabel(rpcUrl)}.`);
     console.error("No network identity is being assumed from SOLANA_CLUSTER alone.");
     if (requireRpcNetworkMatch) {
       console.error("Startup refused because strict RPC network matching is enabled.");
@@ -159,7 +160,7 @@ async function start(): Promise<void> {
 
   createServer(policies, registry, config).listen(port, () => {
   console.log(`AgentGuard listening on :${port}`);
-  console.log(`Resolving Address Lookup Tables via ${rpcUrl}`);
+  console.log(`Resolving Address Lookup Tables via ${endpointLabel(rpcUrl)}`);
   console.log(`Persisting reviews, evaluation history, and daily spend in ${persistencePath}`);
   console.log(retentionDays === undefined ? "AGENTGUARD_RETENTION_DAYS=off -- history and reviews are never deleted." : `Deleting evaluation history and reviews older than ${retentionDays} days (AGENTGUARD_RETENTION_DAYS).`);
   if (!config.slackWebhookUrl) {

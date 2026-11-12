@@ -1186,3 +1186,27 @@ test("tenant: recovering an already-consumed approval after revocation sends no 
     assert.equal(w.spent(), LAMPORTS, "the already-consumed charge is retained, not refunded on revocation");
   } finally { await w.close(); }
 });
+
+test("tenant: a policy revision during ALT lookup cannot authorize an approve under the old rules", async () => {
+  let arrived!: () => void, release!: () => void;
+  const entered = new Promise<void>((resolve) => { arrived = resolve; });
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  let table: AddressLookupTableAccount | undefined;
+  const w = await tenantSetup({ scenario: "valid", resolveLookupTable: async () => { arrived(); await paused; return table ?? null; } });
+  try {
+    const built = altSigningRequest(w.wallet, w.vendor); table = built.table;
+    w.turnkey.activities.set(built.activity.id, built.activity);
+    const polling = w.approver.poll(); await entered;
+    w.customers.setPolicy(w.acmeId, buildDemoPolicy([]));
+    release(); await polling;
+    assert.equal(w.approveVotes(), 0, "a changed policy must be re-evaluated, never approved under an old snapshot");
+  } finally { release(); await w.close(); }
+});
+
+test("Turnkey config rejects empty or whitespace-only explicit customer assignments", async () => {
+  const { turnkeyConfigFromEnv } = await import("../src/turnkey/config.js");
+  const key = apiKey(), wallet = Keypair.generate().publicKey.toBase58();
+  for (const customerId of ["", " "]) {
+    assert.throws(() => turnkeyConfigFromEnv({ TURNKEY_ORGANIZATION_ID: "org", TURNKEY_API_PUBLIC_KEY: key.publicKey, TURNKEY_API_PRIVATE_KEY: key.privateKey, TURNKEY_WALLETS: JSON.stringify({ [wallet]: { policyId: "p", agentId: "a", customerId } }) }), /customerId/);
+  }
+});

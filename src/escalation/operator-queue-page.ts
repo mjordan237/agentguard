@@ -217,7 +217,7 @@ export const APP_SCRIPT = `"use strict";
   }
   function signOut(message) {
     generation += 1; // invalidate every outstanding request: none may render into the signed-out interface
-    token = ""; cursors = [null]; page = 0;
+    token = ""; cursors = [null]; page = 0; detailBusy = false;
     $("list").replaceChildren(); $("detail").replaceChildren();
     $("auto").checked = false; stopAuto();
     show("forget", false); show("who", false);
@@ -498,11 +498,12 @@ export const APP_SCRIPT = `"use strict";
         message.hidden = false;
         buttons.forEach(function (b) { b.disabled = false; });
       })
-      .then(function () { detailBusy = false; });
+      .then(function () { if (mine()) detailBusy = false; });
   }
 
   /** Loads and shows a review. "notice", when given, is the result of this tab's own approve or deny request. */
   function loadDetail(id, notice) {
+    detailBusy = false;
     var box = $("detail");
     var back = el("a", "back", "Back to the queue");
     back.href = "/operator/reviews" + queueSearch;

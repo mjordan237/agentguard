@@ -20,7 +20,11 @@ test("quickstart: the whole first-run story works, in one process, and exits cle
   assert.match(out, /approved by the demo reviewer \(HTTP 302\)/);
   assert.match(out, /the agent retries and is signed: stand-in-relayer-signature-2/);
   assert.match(out, /the same approval used again is refused/);
-  assert.doesNotMatch(r.stderr.replace(/.*ExperimentalWarning.*\n|.*trace-warnings.*\n/g, ""), /\S/, "no unexpected stderr");
+  // bigint-buffer intentionally falls back to JavaScript when its optional native binding is unavailable.
+  // Keep rejecting every other diagnostic; the functional assertions above still verify the whole flow.
+  const stderr = r.stderr.replace(/.*ExperimentalWarning.*\n|.*trace-warnings.*\n/g, "")
+    .replace(/^bigint: Failed to load bindings, pure JS will be used \(try npm run rebuild\?\)\r?\n/gm, "");
+  assert.doesNotMatch(stderr, /\S/, "no unexpected stderr");
   assert.ok(Date.now() - started < 60_000, "first run finishes in under a minute");
 });
 

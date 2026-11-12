@@ -24,7 +24,10 @@ export function turnkeyConfigFromEnv(env: NodeJS.ProcessEnv): { api: TurnkeyApi;
     if (typeof e?.policyId !== "string" || typeof e.agentId !== "string" || (e.customerId !== undefined && typeof e.customerId !== "string")) {
       throw new Error(`TURNKEY_WALLETS entry for ${address} must be {"policyId": string, "agentId": string, "customerId"?: string}.`);
     }
-    wallets[address] = { policyId: e.policyId, agentId: e.agentId, ...(e.customerId ? { customerId: e.customerId as string } : {}) };
+    if (e.customerId !== undefined && (e.customerId as string).trim().length === 0) {
+      throw new Error(`TURNKEY_WALLETS entry for ${address} has an empty customerId; omit it only for an intentionally unscoped wallet.`);
+    }
+    wallets[address] = { policyId: e.policyId, agentId: e.agentId, ...(e.customerId !== undefined ? { customerId: e.customerId as string } : {}) };
   }
   const pollMs = env.TURNKEY_POLL_MS === undefined ? undefined : Number(env.TURNKEY_POLL_MS);
   if (pollMs !== undefined && (!Number.isSafeInteger(pollMs) || pollMs < 500)) throw new Error("TURNKEY_POLL_MS must be a whole number of milliseconds, at least 500.");

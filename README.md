@@ -810,6 +810,18 @@ A transaction that may wait for a person should use a durable nonce. Not yet run
 organization: the request signing is checked against an independent P-256 verifier, and the flow against a
 stand-in Turnkey API.
 
+**Deployment boundary.** Run one active Turnkey approver process. The shared SQLite lease and fence detect
+tested takeover cases, but they do not provide complete multi-replica or exactly-once submission safety.
+An external vote request already in flight can finish after a takeover; a sufficiently delayed request can
+outlive the replay window. Before replacing an active process, stop it and reconcile uncertain requests.
+Live use requires validation of Turnkey's vote/replay behavior and an accepted failover procedure.
+
+**Authorization during requests.** HTTP signing rechecks the active customer and policy revision after
+asynchronous checks, before Kora submission, and before returning EVM signed bytes or broadcasting them.
+A revoked customer receives `403 CUSTOMER_UNAUTHORIZED`; a changed policy receives `409 POLICY_CHANGED`.
+These checks cannot recall an external request already sent. Upstream Kora error text is not returned to
+callers or copied into their audit trail because diagnostics may contain private endpoint credentials.
+
 **Finding waiting requests.** Turnkey documents a page size (1 to 100, default 10) and an `after` cursor (an
 activity id), but not the order of results, how the list ends, or whether a short page is the last one. So
 AgentGuard asks for 100 at a time and treats only an empty page as the end. A page that brings nothing new also
