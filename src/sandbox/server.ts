@@ -6,14 +6,16 @@ import { checkPolicy } from "../policy/validate.js";
 import { sandboxExamples } from "./examples.js";
 import { openApiDocument } from "./openapi.js";
 import { docsPage } from "./docs-page.js";
+import type { CustomerStore } from "../customers/customer-store.js";
 
 /**
- * The public sandbox: anyone can check a transaction against a policy they send, and get the same answer, and
- * the same receipt, as `npm run check` gives locally. It is a separate server from the gate on purpose. It holds
- * no keys, cannot sign, keeps nothing, opens no reviews and sends nothing to Slack; the worst a caller can do is
- * use its CPU and, when an RPC is configured, ask it to read a few lookup tables.
+ * Policy evaluation without signing, transaction persistence or human review.
+ * Hosted deployments require customer API keys. Local demos may run without authentication.
  */
 export interface SandboxConfig {
+  customers?: Pick<CustomerStore, "authenticate" | "hasAnyCustomers">;
+  requireApiKeys?: boolean;
+  persistencePath?: string;
   /** Reads lookup tables a request does not supply. Without it, such transactions are held. */
   resolveLookupTable?: LookupTableResolver;
   rateLimit?: { maxRequests: number; windowMs: number };
@@ -27,20 +29,37 @@ export interface SandboxConfig {
 const BODY_LIMIT = "64kb";
 
 export function createSandboxServer(config: SandboxConfig = {}): express.Express {
+  if (config.requireApiKeys && !config.customers) throw new Error("Authenticated policy API requires a customer store.");
   const app = express();
   app.disable("x-powered-by");
   if (config.trustProxy !== undefined) app.set("trust proxy", config.trustProxy);
 
-  // Readable from any web page: there are no cookies or credentials to protect, and that is what a playground needs.
+  // API keys are explicit headers, never cookies. The playground keeps its key in memory only.
   app.use((req, res, next) => {
-    res.set({ "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "X-Content-Type-Options": "nosniff" });
+    res.set({ "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "content-type, authorization", "Access-Control-Expose-Headers": "Retry-After", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" });
     if (req.method === "OPTIONS") return void res.status(204).end();
     next();
   });
 
-  const limiter = new RateLimiter(config.rateLimit?.maxRequests ?? 60, config.rateLimit?.windowMs ?? 60_000);
+  const windowMs = config.rateLimit?.windowMs ?? 60_000;
+  const limiter = new RateLimiter(config.rateLimit?.maxRequests ?? 60, windowMs, { persistencePath: config.persistencePath });
+  const keyMode = () => config.requireApiKeys || config.customers?.hasAnyCustomers() || false;
+  const rateLimited = (res: Response) => res.set("Retry-After", String(Math.ceil(windowMs / 1000))).status(429).json({ error: "RATE_LIMITED", message: "Too many requests; retry after the indicated delay." });
   const limited = (req: express.Request, res: Response, next: express.NextFunction) => {
-    if (!limiter.allow(`sandbox:${clientKey(req.ip)}`)) return void res.status(429).json({ error: "RATE_LIMITED", message: "Too many requests; try again in a minute." });
+    if (!limiter.allow(`preview:public:${clientKey(req.ip)}`)) return void rateLimited(res);
+    next();
+  };
+  const authorized = (req: express.Request, res: Response, next: express.NextFunction) => {
+    if (!keyMode()) return limited(req, res, next);
+    const header = req.get("authorization");
+    const key = header?.match(/^Bearer ([^\s]+)$/i)?.[1];
+    const customer = config.customers?.authenticate(key);
+    if (!customer) {
+      if (!limiter.allow(`preview:invalid:${clientKey(req.ip)}`)) return void rateLimited(res);
+      res.set("WWW-Authenticate", 'Bearer realm="AgentGuard"');
+      return void res.status(401).json({ error: "UNAUTHORIZED", message: "A valid customer API key is required." });
+    }
+    if (!limiter.allow(`preview:customer:${customer.id}`, customer.rateLimitPerMinute)) return void rateLimited(res);
     next();
   };
   const json = (res: Response, status: number, body: unknown) =>
@@ -48,32 +67,33 @@ export function createSandboxServer(config: SandboxConfig = {}): express.Express
   const safe = (handler: (req: express.Request, res: Response) => Promise<unknown>) =>
     (req: express.Request, res: Response, next: express.NextFunction) => { handler(req, res).catch(next); };
 
-  app.use(express.json({ limit: BODY_LIMIT }));
+  app.use(["/v1/check", "/v1/policies/validate"], authorized, express.json({ limit: BODY_LIMIT }));
 
   app.get("/", (req, res) => {
-    res.type("html").send(docsPage({ origin: `${req.protocol}://${req.get("host") ?? "localhost"}`, repositoryUrl: config.repositoryUrl ?? "https://github.com/mjordan237/agentguard", sourceCommit: config.sourceCommit }));
+    res.type("html").send(docsPage({ origin: `${req.protocol}://${req.get("host") ?? "localhost"}`, repositoryUrl: config.repositoryUrl ?? "https://github.com/mjordan237/agentguard", sourceCommit: config.sourceCommit, requireApiKeys: keyMode() }));
   });
   app.get("/favicon.ico", (_req, res) => { res.status(204).end(); });
   app.get("/healthz", (_req, res) => json(res, 200, { ok: true }));
-  app.get("/openapi.json", (_req, res) => json(res, 200, openApiDocument()));
+  app.get("/openapi.json", (_req, res) => json(res, 200, openApiDocument(keyMode())));
   app.get("/v1", (_req, res) => json(res, 200, {
     engine: ENGINE,
     sourceCommit: config.sourceCommit ?? "not reported by this deployment",
     signs: false,
     stores: false,
+    authentication: keyMode() ? "bearer" : "none",
     lookupTables: config.resolveLookupTable ? "read from the configured RPC when not supplied" : "only those supplied in the request",
-    limits: { bodyBytes: BODY_LIMIT, requestsPerMinute: config.rateLimit?.maxRequests ?? 60 },
+    limits: { bodyBytes: 65_536, publicRequestsPerWindow: config.rateLimit?.maxRequests ?? 60, windowMs, authenticatedRequests: "per customer" },
     verify: "Check out sourceCommit, then run `npm run check -- --json` on the same input: its receipt must equal this API's."
   }));
   app.get("/v1/examples", limited, (_req, res) => json(res, 200, sandboxExamples()));
 
-  app.post("/v1/policies/validate", limited, (req, res) => {
+  app.post("/v1/policies/validate", (req, res) => {
     const checked = checkPolicy(req.body?.policy);
     if (!checked.policy) return json(res, 200, { valid: false, problems: checked.problems, notes: [] });
     return json(res, 200, { valid: true, problems: [], notes: policyNotes(checked.policy) });
   });
 
-  app.post("/v1/check", limited, safe(async (req, res) => {
+  app.post("/v1/check", safe(async (req, res) => {
     const body = req.body as Record<string, unknown> | undefined;
     const chain = body?.chain ?? "solana";
     if (chain !== "solana" && chain !== "evm") return json(res, 400, { error: "INVALID_REQUEST", message: 'chain must be "solana" or "evm".' });
@@ -100,7 +120,7 @@ export function createSandboxServer(config: SandboxConfig = {}): express.Express
     if (typeof status === "number" && status >= 400 && status < 500) {
       return json(res, status, { error: status === 413 ? "REQUEST_TOO_LARGE" : "INVALID_REQUEST", message: status === 413 ? `The request body is over ${BODY_LIMIT}.` : "The request body is not valid JSON." });
     }
-    console.error("Sandbox request failed:", error);
+    console.error("Policy API request failed.");
     return json(res, 500, { error: "INTERNAL_ERROR", message: "The check failed." });
   });
 

@@ -19,6 +19,7 @@ WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/scripts/customers.mjs /app/scripts/reviewers.mjs /app/scripts/verify-policy-api.mjs ./scripts/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN mkdir /data && chown node:node /data && chmod +x /usr/local/bin/docker-entrypoint.sh

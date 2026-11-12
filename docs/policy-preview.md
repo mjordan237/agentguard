@@ -4,7 +4,7 @@
 
 ## Preview server
 
-`npm run sandbox` starts a separate preview server (port 8788 by default) where anyone can check a
+`npm run sandbox` starts a separate preview server (port 8788 by default) where callers can check a
 transaction against a policy they send. It cannot sign, holds no keys, does not store requests, does not
 rehearse swaps or track spending across requests (daily limits use the `spentToday` the request supplies), opens no reviews and has
 none of the gate's routes; it runs the same engine as `npm run check`. `GET /` is a docs page with a playground,
@@ -20,9 +20,11 @@ curl --fail http://localhost:8788/v1/examples
 ```
 
 Use the local playground at `http://localhost:8788/` to submit an example.
-The preview server is separate from the authenticated signing service. It does not
-provide customer API-key authentication; add and validate access controls before
-exposing it publicly. These instructions do not identify a deployed public API.
+The preview server is separate from the signing service. Local demo mode is open;
+hosted production mode requires customer API keys, persistent credential and quota
+storage, and explicit production configuration. See the [developer API guide](developer-api.md)
+for authentication, customer provisioning and release verification. These instructions
+do not identify a deployed public API.
 
 
 **Verifying a result.** Every response carries `receipt.inputHash` (SHA-256 of the input as understood:

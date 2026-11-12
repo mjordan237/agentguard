@@ -55,6 +55,7 @@ An `ALLOW` result or completed Turnkey vote does not prove that a transaction ex
 - **Run the sample scenarios:** see the [local demo guide](demo/README.md).
 - **Evaluate a policy locally:** use the [offline CLI](docs/policy-preview.md#offline-policy-checks).
 - **Explore request formats:** run the [preview server](docs/policy-preview.md#preview-server).
+- **Integrate policy checks over HTTP:** use the [developer API guide](docs/developer-api.md).
 - **Integrate an agent:** see the [request flow and TypeScript client](docs/integration-and-operations.md#integrating-an-agent).
 - **Configure customers and reviewers:** see [customer onboarding](docs/integration-and-operations.md#customer-onboarding).
 - **Connect a signing provider:** read the [Solana requirements](docs/integration-and-operations.md#human-review-on-solana-needs-a-durable-nonce), [Turnkey workflow](docs/integration-and-operations.md#turnkey-wallets-agentguard-as-a-required-approver) or [EVM reference](docs/integration-and-operations.md#evm-ethereum-gate).
@@ -70,8 +71,9 @@ signing key or a wallet policy that bypasses the gate can submit outside this se
 
 Before exposing the signing service, enable `AGENTGUARD_PRODUCTION=true`, configure
 API-key authentication, named reviewers, persistent storage, HTTPS and trusted proxy
-settings. The preview server is a separate service and needs its own public-access
-controls. See the operations reference for the required variables.
+settings. The preview server is a separate service with its own authenticated
+production configuration. See the [developer API guide](docs/developer-api.md) and
+operations reference for the required variables.
 
 Run one active Turnkey approver process. The SQLite lease and fencing checks do not
 provide exactly-once external submission or complete safety across multiple replicas.
