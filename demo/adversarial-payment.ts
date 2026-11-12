@@ -1,15 +1,7 @@
 /**
- * Demo run 2: same vendor payment, but a compromised tool/prompt
- * injection has appended a second instruction the agent never intended
- * -- a System Program Assign, reassigning the agent wallet's own account
- * to an attacker-controlled program. This is the same threat class as
- * SPL Token's SetAuthority hijack: it moves zero balance, so a
- * simulator that only diffs balances would call this transaction safe.
- *
- * The registry only has "transfer" registered for System Program (see
- * demo/policy.ts), so Assign's discriminator matches nothing in it --
- * it can't be named or decoded, and falls to raw_dump. Expect
- * NEEDS_REVIEW, not a silent ALLOW.
+ * A vendor payment followed by System Program Assign. The demo registry registers
+ * only System transfers, so Assign is undecoded and the transaction needs review.
+ * This local evaluation does not simulate execution or demonstrate a prompt injection.
  */
 import { Keypair, SystemProgram, TransactionMessage, VersionedTransaction, PublicKey } from "@solana/web3.js";
 import { parseAndDecodeTransaction } from "../src/agent-integration/parse-transaction.js";
@@ -26,8 +18,7 @@ const transferInstruction = SystemProgram.transfer({
   lamports: 250_000_000
 });
 
-// The injected instruction. Same account, no balance movement --
-// invisible to a balance-diff-only simulator.
+// Additional account-assignment instruction, unsupported by the demo registry.
 const hijackInstruction = SystemProgram.assign({
   accountPubkey: agentWallet.publicKey,
   programId: attackerProgram.publicKey

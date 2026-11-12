@@ -23,7 +23,7 @@ export function docsPage(options: { origin: string; repositoryUrl: string; sourc
   .muted { color: #52525b; }
 </style></head><body>
 <h1>AgentGuard sandbox API</h1>
-<p class="muted">${ENGINE.name} ${ENGINE.version}. Check a Solana or EVM transaction against a policy before anything is signed.
+<p class="muted">${ENGINE.name} ${ENGINE.version}. Evaluate a Solana or EVM transaction against a supplied policy.
 This is a preview: it signs nothing and does not store what you send. It does not rehearse swaps, keep a running
 spending total or open reviews.</p>
 
@@ -46,7 +46,7 @@ input through the open-source code and compare:</p>
 git checkout ${commit ?? "&lt;sourceCommit from GET /v1&gt;"}
 npm ci &amp;&amp; npm run build
 npm run check -- --json --policy policy.json --tx-file tx.b64 [--spent native=4800000000] [--lookup-tables tables.json]</pre>
-<p>${commit ? `This server runs commit <code>${commit}</code>.` : "This deployment does not report its commit; ask its operator which one it runs."} If the result hashes match, this API gave exactly the answer the published code gives. For a transaction that uses lookup tables,
+<p>${commit ? `The operator reports commit <code>${commit}</code>.` : "This deployment does not report its commit; ask its operator which one it runs."} Matching hashes show agreement for this input, not proof of the running software or deployment configuration. For a transaction that uses lookup tables,
 save the response's <code>lookupTables</code> to <code>tables.json</code> first.</p>
 
 <h2>Try it</h2>

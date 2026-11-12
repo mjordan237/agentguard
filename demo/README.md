@@ -48,15 +48,11 @@ node dist/demo/nemotron-review-demo.js --stub
 ```
 
 Use the stub for a local rehearsal. The note is labelled `local-stub-not-nemotron`.
-For the external model configuration, use the README's Nemotron section and provide
+For the external model configuration, see [optional reviewer explanations](../docs/integration-and-operations.md#optional-reviewer-explanations) and provide
 credentials through the documented environment variables. Keep credentials out of recordings.
 
-## Record and verify
+## Inspect the implementation
 
-Use `demo/record-demo-video.sh` for a paced recording of the four policy examples.
-Use `demo/technical-walkthrough-script.md` for the current review workflow.
-The checked-in videos are recordings of earlier builds; rerun the current examples
-before presenting them as evidence of current behavior.
-
-Run `npm run build`, `npm run lint` and `npm test` before recording. Quote the totals
-from that run, including skipped tests, rather than copying a fixed count into narration.
+See [the technical walkthrough](technical-walkthrough-script.md) for the relevant
+source files and test coverage. The demo policies and generated wallets are sample
+data, not deployment configuration.

@@ -607,8 +607,8 @@ answers 502 and keeps the budget and approval spent because the outcome is unkno
 - Uniswap is recognised on Ethereum mainnet only; other chains' routers have not been verified.
 - The code check sees the chain at one moment. Broadcast mode narrows the gap to seconds; on-chain
   enforcement would be needed to bind checks to execution.
-- The fork tests (below) are the only checks against a real chain, and they were last run together before the
-  latest changes. The code-check and broadcast paths have been tested with stubs, not against a node.
+- Fork tests require a separately configured Anvil fork and are skipped without `EVM_FORK_RPC`.
+  Local fake-service tests do not establish current behavior against a live provider.
 
 ## Known limitations
 

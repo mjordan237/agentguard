@@ -52,6 +52,7 @@ An `ALLOW` result or completed Turnkey vote does not prove that a transaction ex
 
 ## Choose a workflow
 
+- **Run the sample scenarios:** see the [local demo guide](demo/README.md).
 - **Evaluate a policy locally:** use the [offline CLI](docs/policy-preview.md#offline-policy-checks).
 - **Explore request formats:** run the [preview server](docs/policy-preview.md#preview-server).
 - **Integrate an agent:** see the [request flow and TypeScript client](docs/integration-and-operations.md#integrating-an-agent).

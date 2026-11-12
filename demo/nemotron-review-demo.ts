@@ -1,25 +1,24 @@
 /**
- * Demo run 5: the adversarial payment from run 2, sent through the real
- * HTTP server, with the Nemotron reviewer assist turned on. Leaves the
- * server running so the review page can be opened in a browser (this is
- * the screen recorded for the hackathon video).
+ * Local transaction review with an optional model-generated explanation.
+ * Leaves the server running for an authenticated browser review.
  *
  * Real run:   NEBIUS_API_KEY=... NEBIUS_MODEL=... node dist/demo/nemotron-review-demo.js
  * Rehearsal:  node dist/demo/nemotron-review-demo.js --stub
  *
  * --stub starts a local fake Token Factory so the page layout can be
  * rehearsed without a key. Its note is labeled with the model id
- * "local-stub-not-nemotron" on the page; never record the submission video
- * with it.
+ * "local-stub-not-nemotron" on the page.
  */
 import http from "node:http";
 import { AddressInfo } from "node:net";
 import { Keypair, SystemProgram, TransactionMessage, VersionedTransaction, PublicKey } from "@solana/web3.js";
 import { createServer } from "../src/api/server.js";
+import { ReviewerStore } from "../src/escalation/reviewer-store.js";
 import { DEFAULT_NEBIUS_BASE_URL, type ExplainerConfig } from "../src/analysis/nemotron-explainer.js";
 import { buildDemoRegistry, buildDemoPolicy } from "./policy.js";
 
-const REVIEW_SECRET = "demo-review-secret";
+const reviewers = new ReviewerStore();
+const reviewer = reviewers.create("Local demo reviewer");
 const useStub = process.argv.includes("--stub");
 
 function buildAdversarialTransaction(vendor: Keypair): string {
@@ -71,7 +70,8 @@ const vendor = Keypair.generate();
 const server = http.createServer(
   createServer(new Map([["demo", buildDemoPolicy([vendor.publicKey.toBase58()])]]), buildDemoRegistry(), {
     baseUrl: "http://localhost:8788",
-    reviewActionSecret: REVIEW_SECRET,
+    reviewers,
+    requireReviewers: true,
     explainer
   })
 );
@@ -91,8 +91,11 @@ console.log(`Review:   ${result.reviewUrl}`);
 
 let noteSeenAfterMs: number | undefined;
 for (let waited = 0; waited < 30_000; waited += 500) {
-  const html = await (await fetch(`http://localhost:8788/review/${result.reviewId}`)).text();
-  if (html.includes("AI-generated note")) {
+  const detail = await fetch(`http://localhost:8788/operator/api/reviews/${result.reviewId}`, {
+    headers: { "X-Reviewer-Token": reviewer.token }
+  });
+  const review = await detail.json() as { advisoryExplanation?: unknown };
+  if (detail.ok && review.advisoryExplanation) {
     noteSeenAfterMs = Date.now() - started;
     break;
   }
@@ -101,5 +104,5 @@ for (let waited = 0; waited < 30_000; waited += 500) {
 console.log(noteSeenAfterMs === undefined
   ? "No AI note appeared within 30s (the review page still works without it)."
   : `AI note attached after ${noteSeenAfterMs} ms.`);
-console.log(`Approval secret for this demo: ${REVIEW_SECRET}`);
+console.log(`Temporary reviewer token for this local demo: ${reviewer.token}`);
 console.log("Server stays up on :8788 for the browser. Ctrl+C to stop.");

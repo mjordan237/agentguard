@@ -24,3 +24,8 @@ agentguard.sqlite-wal
 *.sqlite-wal
 *.sqlite-journal
 backups/
+
+# Local handoff and generated presentation assets are not source deliverables.
+REVIEW_HANDOFF.md
+demo/video-render/
+demo/*.mp4

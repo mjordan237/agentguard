@@ -1,1 +1,0 @@
-Before any transaction signs, AgentGuard decodes registered

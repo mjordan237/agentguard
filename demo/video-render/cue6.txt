@@ -1,2 +1,0 @@
-Every blocked transaction becomes a real review task for a
-human -- not a black box, not a silent guess.
