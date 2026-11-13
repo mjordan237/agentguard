@@ -99,10 +99,13 @@ an HTTPS public base URL and an explicit proxy setting. Mount persistent storage
 `/data`; a path alone does not make container storage durable. Use `TRUST_PROXY=0`
 only when there is no reverse proxy; verify the hosting topology before choosing it.
 
-Start command: `node dist/src/sandbox/index.js`. The optional Railway configuration
-file is `railway.policy-api.json`; select it for the separate policy API service.
-It is not the default configuration for the existing signing backend. Do not copy
-signing keys or Turnkey credentials into this service.
+Configure the separate policy API service with start command
+`node dist/src/sandbox/index.js`, health-check path `/healthz`, one replica and the
+repository Dockerfile. Set these in the hosting service settings or supported
+infrastructure tooling; new Railway services cannot opt into legacy config-as-code.
+Connect the service to the reviewed GitHub release branch so future publication
+updates its deployed source. Do not copy signing keys or Turnkey credentials into
+this service.
 
 Provision each customer against the running service's database:
 
