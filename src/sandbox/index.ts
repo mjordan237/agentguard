@@ -25,7 +25,7 @@ if (rpcUrl) {
 // Railway sets RAILWAY_GIT_COMMIT_SHA; elsewhere set SOURCE_COMMIT at deploy time.
 const sourceCommit = process.env.SOURCE_COMMIT ?? process.env.RAILWAY_GIT_COMMIT_SHA;
 
-createSandboxServer({ customers, requireApiKeys: runtime.requireApiKeys, persistencePath: runtime.persistencePath, resolveLookupTable, trustProxy, sourceCommit, repositoryUrl: process.env.SANDBOX_REPOSITORY_URL, rateLimit: { maxRequests: requestsPerMinute, windowMs: 60_000 } }).listen(port, () => {
+createSandboxServer({ customers, requireApiKeys: runtime.requireApiKeys, persistencePath: runtime.persistencePath, clientIpHeader: runtime.clientIpHeader, resolveLookupTable, trustProxy, sourceCommit, repositoryUrl: process.env.SANDBOX_REPOSITORY_URL, rateLimit: { maxRequests: requestsPerMinute, windowMs: 60_000 } }).listen(port, () => {
   console.log(`AgentGuard sandbox (${ENGINE.name} ${ENGINE.version}) on http://localhost:${port}. Signs nothing and does not store requests.`);
   console.log(runtime.requireApiKeys ? "Customer API keys required for policy checks." : "Local preview mode; do not expose without access controls.");
   console.log(rpcUrl ? `Lookup table RPC: ${endpointLabel(rpcUrl)}.` : "No SANDBOX_RPC_URL: lookup tables must be supplied in the request.");

@@ -1,4 +1,5 @@
 import express, { type Response } from "express";
+import { isIP } from "node:net";
 import type { LookupTableResolver } from "../agent-integration/parse-transaction.js";
 import { clientKey, RateLimiter } from "../api/rate-limiter.js";
 import { CheckInputError, ENGINE, policyNotes, runCheck } from "../check/engine.js";
@@ -20,6 +21,8 @@ export interface SandboxConfig {
   resolveLookupTable?: LookupTableResolver;
   rateLimit?: { maxRequests: number; windowMs: number };
   trustProxy?: number;
+  /** Only enable behind an edge that overwrites this header and prevents direct client access. */
+  clientIpHeader?: "x-real-ip";
   /** The git commit this build came from, so a developer can check out exactly that code to verify a receipt. */
   sourceCommit?: string;
   /** Where the published code lives, shown on the docs page for verifying a receipt. */
@@ -30,6 +33,7 @@ const BODY_LIMIT = "64kb";
 
 export function createSandboxServer(config: SandboxConfig = {}): express.Express {
   if (config.requireApiKeys && !config.customers) throw new Error("Authenticated policy API requires a customer store.");
+  if (config.clientIpHeader && config.trustProxy !== 1) throw new Error("The edge client-IP header requires TRUST_PROXY=1.");
   const app = express();
   app.disable("x-powered-by");
   if (config.trustProxy !== undefined) app.set("trust proxy", config.trustProxy);
@@ -44,9 +48,15 @@ export function createSandboxServer(config: SandboxConfig = {}): express.Express
   const windowMs = config.rateLimit?.windowMs ?? 60_000;
   const limiter = new RateLimiter(config.rateLimit?.maxRequests ?? 60, windowMs, { persistencePath: config.persistencePath });
   const keyMode = () => config.requireApiKeys || config.customers?.hasAnyCustomers() || false;
+  const requestClient = (req: express.Request) => {
+    if (!config.clientIpHeader) return clientKey(req.ip);
+    const address = req.get(config.clientIpHeader);
+    // Do not fall back to a caller-supplied X-Forwarded-For when the edge header is absent or malformed.
+    return clientKey(address && isIP(address) ? address : req.socket.remoteAddress);
+  };
   const rateLimited = (res: Response) => res.set("Retry-After", String(Math.ceil(windowMs / 1000))).status(429).json({ error: "RATE_LIMITED", message: "Too many requests; retry after the indicated delay." });
   const limited = (req: express.Request, res: Response, next: express.NextFunction) => {
-    if (!limiter.allow(`preview:public:${clientKey(req.ip)}`)) return void rateLimited(res);
+    if (!limiter.allow(`preview:public:${requestClient(req)}`)) return void rateLimited(res);
     next();
   };
   const authorized = (req: express.Request, res: Response, next: express.NextFunction) => {
@@ -55,7 +65,7 @@ export function createSandboxServer(config: SandboxConfig = {}): express.Express
     const key = header?.match(/^Bearer ([^\s]+)$/i)?.[1];
     const customer = config.customers?.authenticate(key);
     if (!customer) {
-      if (!limiter.allow(`preview:invalid:${clientKey(req.ip)}`)) return void rateLimited(res);
+      if (!limiter.allow(`preview:invalid:${requestClient(req)}`)) return void rateLimited(res);
       res.set("WWW-Authenticate", 'Bearer realm="AgentGuard"');
       return void res.status(401).json({ error: "UNAUTHORIZED", message: "A valid customer API key is required." });
     }

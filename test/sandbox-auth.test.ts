@@ -124,4 +124,27 @@ test("production preview configuration fails closed without explicit controls", 
     assert.throws(() => sandboxRuntimeConfig({ ...valid, ...changes }));
   }
   assert.throws(() => createSandboxServer({ requireApiKeys: true }), /customer store/);
+  assert.throws(() => sandboxRuntimeConfig({ ...valid, CLIENT_IP_HEADER: "x-forwarded-for" }));
+  assert.throws(() => sandboxRuntimeConfig({ ...valid, TRUST_PROXY: "0", CLIENT_IP_HEADER: "x-real-ip" }));
+});
+
+test("client-IP overrides are opt-in and cannot fall back to untrusted forwarding headers", async () => {
+  for (const edgeMode of [false, true]) {
+    const server = http.createServer(createSandboxServer({
+      requireApiKeys: true, customers: new CustomerStore(), rateLimit: { maxRequests: 1, windowMs: 60_000 },
+      ...(edgeMode ? { trustProxy: 1, clientIpHeader: "x-real-ip" as const } : {})
+    }));
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/check`;
+    const check = (headers: Record<string, string>) => fetch(url, { method: "POST", headers });
+    try {
+      assert.equal((await check({ "x-real-ip": "192.0.2.1" })).status, 401);
+      assert.equal((await check({ "x-real-ip": "192.0.2.2" })).status, edgeMode ? 401 : 429);
+      assert.equal((await check({ "x-real-ip": "192.0.2.1", "x-forwarded-for": "198.51.100.1" })).status, 429);
+      if (edgeMode) {
+        assert.equal((await check({ "x-real-ip": "invalid", "x-forwarded-for": "198.51.100.2" })).status, 401);
+        assert.equal((await check({ "x-real-ip": "invalid", "x-forwarded-for": "198.51.100.3" })).status, 429);
+      }
+    } finally { await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); }); }
+  }
 });

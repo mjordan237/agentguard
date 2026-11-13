@@ -16,6 +16,9 @@ export function sandboxRuntimeConfig(env: Environment) {
   if (!Number.isSafeInteger(port) || port < 0 || port > 65535) throw new Error("PORT must be an integer from 0 to 65535.");
   if (!Number.isSafeInteger(requestsPerMinute) || requestsPerMinute <= 0) throw new Error("SANDBOX_REQUESTS_PER_MINUTE must be a positive integer.");
   const trustProxy = parseTrustProxy(env.TRUST_PROXY);
+  const clientIpHeader = env.CLIENT_IP_HEADER;
+  if (clientIpHeader !== undefined && clientIpHeader !== "x-real-ip") throw new Error("CLIENT_IP_HEADER must be x-real-ip or unset.");
+  if (clientIpHeader && trustProxy !== 1) throw new Error("CLIENT_IP_HEADER requires TRUST_PROXY=1 and an edge that overwrites X-Real-IP.");
   let baseUrl: URL | undefined;
   if (env.BASE_URL) {
     try { baseUrl = new URL(env.BASE_URL); } catch { throw new Error("BASE_URL must be a valid URL."); }
@@ -31,5 +34,5 @@ export function sandboxRuntimeConfig(env: Environment) {
       throw new Error("Production policy API requires a public HTTPS BASE_URL.");
     }
   }
-  return { production, requireApiKeys, port, requestsPerMinute, trustProxy, persistencePath: env.AGENTGUARD_DB_PATH, baseUrl: baseUrl?.origin };
+  return { production, requireApiKeys, port, requestsPerMinute, trustProxy, clientIpHeader: clientIpHeader === "x-real-ip" ? "x-real-ip" as const : undefined, persistencePath: env.AGENTGUARD_DB_PATH, baseUrl: baseUrl?.origin };
 }

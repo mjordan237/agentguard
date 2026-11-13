@@ -98,6 +98,11 @@ The service refuses production startup without authentication, a non-memory data
 an HTTPS public base URL and an explicit proxy setting. Mount persistent storage at
 `/data`; a path alone does not make container storage durable. Use `TRUST_PROXY=0`
 only when there is no reverse proxy; verify the hosting topology before choosing it.
+Railway documents [`X-Real-IP` as its edge client-address header](https://github.com/railwayapp/docs/blob/main/content/docs/networking/public-networking/specs-and-limits.md). For that topology,
+set `TRUST_PROXY=1` and `CLIENT_IP_HEADER=x-real-ip`. Use this override only when the
+trusted edge overwrites the header and clients cannot bypass it. Without an override,
+the service uses Express's standard proxy handling. Invalid or missing override
+headers fall back to the socket address, not a caller-supplied forwarded address.
 
 Configure the separate policy API service with start command
 `node dist/src/sandbox/index.js`, health-check path `/healthz`, one replica and the
