@@ -3,11 +3,16 @@ import { ENGINE } from "../check/engine.js";
 const amounts = { type: "object", additionalProperties: { type: "string", pattern: "^\\d+$" }, description: "Asset to amount in base units, as decimal strings. \"native\" is SOL (lamports) or ETH (wei); tokens are keyed by mint or contract address." };
 
 /** OpenAPI 3.1 description of the sandbox, served at /openapi.json. */
-export function openApiDocument() {
+export function openApiDocument(requireApiKeys = false) {
+  const security = requireApiKeys ? [{ bearerAuth: [] }] : [];
+  const authResponses = {
+    401: { description: "Missing, invalid or revoked customer API key" },
+    429: { description: "Rate limit reached; Retry-After gives the conservative delay in seconds" }
+  };
   return {
     openapi: "3.1.0",
     info: {
-      title: "AgentGuard sandbox API",
+      title: "AgentGuard policy API",
       version: ENGINE.version,
       description: "Evaluate a Solana or EVM transaction against a supplied policy. This preview does not sign transactions or persist requests. Results include hashes for comparison with the offline CLI using the same input."
     },
@@ -16,16 +21,19 @@ export function openApiDocument() {
       "/v1/examples": { get: { summary: "Request bodies to try, each with the decision it should get", responses: { 200: { description: "Examples" } } } },
       "/v1/policies/validate": {
         post: {
+          security,
           summary: "Validate a policy",
           requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["policy"], properties: { policy: { $ref: "#/components/schemas/Policy" } } } } } },
-          responses: { 200: { description: "valid, problems (one per line) and notes about settings that send everything to review" } }
+          responses: { ...authResponses, 400: { description: "Malformed JSON" }, 413: { description: "Body exceeds 64 KiB" }, 200: { description: "valid, problems (one per line) and notes about settings that send everything to review" } }
         }
       },
       "/v1/check": {
         post: {
+          security,
           summary: "Check one transaction against one policy",
           requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/CheckRequest" } } } },
           responses: {
+            ...authResponses,
             200: { description: "The decision", content: { "application/json": { schema: { $ref: "#/components/schemas/CheckResult" } } } },
             400: { description: "The policy or transaction could not be read; `problems` lists each policy error" },
             413: { description: "The body is over 64 KB" },
@@ -35,6 +43,7 @@ export function openApiDocument() {
       }
     },
     components: {
+      securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", description: "Customer API key, provisioned by the operator. Use Authorization: Bearer agk_..." } },
       schemas: {
         Policy: {
           type: "object",
